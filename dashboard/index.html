@@ -7,47 +7,48 @@
 <style>
   * { box-sizing: border-box; }
   body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f6f8fa; color:#1f2328; }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
   header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-  h1 { font-size: 22px; margin: 0; }
-  .muted { color:#6b7280; font-size: 13px; }
-  .btn { display:inline-flex; align-items:center; gap:8px; background:#0969da; color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  h1 { font-size: 20px; margin: 0; }
+  .muted { color:#6b7280; font-size: 12px; }
+  .btn { display:inline-flex; align-items:center; gap:8px; background:#0969da; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
   .btn:hover { background:#0860c4; }
   .btn:disabled { opacity:.7; cursor:default; }
-  .ring { width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
+  .ring { width:14px; height:14px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
   .ring.dark { border-color:rgba(0,0,0,.15); border-top-color:#0969da; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin: 20px 0; }
-  .stat { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:16px; }
-  .stat .k { color:#6b7280; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
-  .stat .v { font-size:22px; font-weight:700; margin-top:6px; }
-  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(360px,1fr)); gap:16px; }
-  .section { margin-top: 26px; }
-  .section-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-  .section-head h2 { font-size:17px; margin:0; }
-  .section-head .dot { width:10px; height:10px; border-radius:50%; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin: 16px 0; }
+  .stat { background:#fff; border:1px solid #e1e4e8; border-radius:10px; padding:12px; }
+  .stat .k { color:#6b7280; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .stat .v { font-size:18px; font-weight:700; margin-top:4px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap:12px; }
+  .section { margin-top: 18px; }
+  .section-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .section-head h2 { font-size:15px; margin:0; }
+  .section-head .dot { width:9px; height:9px; border-radius:50%; }
   .section-head .chip { font-size:12px; color:#6b7280; }
-  .card { background:#fff; border:1px solid #e1e4e8; border-radius:14px; padding:16px; }
+  .section-head .price { font-weight:600; font-size:13px; }
+  .card { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:12px; }
   .card.out { border-color:#d4a72c; }
   .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
-  .badge { display:inline-block; padding:2px 8px; border-radius:6px; color:#fff; font-size:11px; font-weight:600; text-transform:capitalize; }
-  .pair { font-weight:700; font-size:15px; }
-  .fee { color:#6b7280; font-size:12px; }
-  .range-status { font-size:12px; font-weight:600; padding:3px 8px; border-radius:6px; }
+  .badge { display:inline-block; padding:2px 7px; border-radius:5px; color:#fff; font-size:10px; font-weight:600; text-transform:capitalize; }
+  .pair { font-weight:700; font-size:14px; }
+  .fee { color:#6b7280; font-size:11px; }
+  .range-status { font-size:11px; font-weight:600; padding:2px 7px; border-radius:5px; }
   .range-status.in { background:#dafbe1; color:#1a7f37; }
   .range-status.outrange { background:#fff1e5; color:#bc4c00; }
-  .sub { color:#6b7280; font-size:12px; margin:8px 0 10px; }
-  .range-labels { display:flex; justify-content:space-between; font-size:11px; color:#6b7280; }
-  .rangebar { position:relative; height:6px; background:#e1e4e8; border-radius:4px; margin:6px 0 12px; }
+  .sub { color:#6b7280; font-size:11px; margin:6px 0 8px; }
+  .range-labels { display:flex; justify-content:space-between; font-size:10px; color:#6b7280; }
+  .rangebar { position:relative; height:5px; background:#e1e4e8; border-radius:4px; margin:5px 0 10px; }
   .rangebar-fill { position:absolute; top:0; bottom:0; background:#1a7f37; border-radius:4px; }
-  .rangebar-dot { position:absolute; top:-3px; width:12px; height:12px; border-radius:50%; background:#1f2328; transform:translateX(-6px); }
-  .rows { border-top:1px solid #e1e4e8; margin-top:4px; }
-  .row { display:flex; justify-content:space-between; gap:12px; padding:8px 0; font-size:13px; border-bottom:1px solid #f0f1f2; }
+  .rangebar-dot { position:absolute; top:-2px; width:10px; height:10px; border-radius:50%; background:#1f2328; transform:translateX(-5px); }
+  .rows { border-top:1px solid #e1e4e8; margin-top:2px; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:12px; border-bottom:1px solid #f0f1f2; }
   .row span { color:#6b7280; }
-  .value { margin-top:12px; font-size:20px; font-weight:700; }
-  .dim { color:#6b7280; font-size:12px; font-weight:400; }
-  .card-foot { display:flex; justify-content:flex-end; margin-top:12px; }
-  .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; color:#0969da; cursor:pointer; }
+  .value { margin-top:10px; font-size:16px; font-weight:700; }
+  .dim { color:#6b7280; font-size:11px; font-weight:400; }
+  .card-foot { display:flex; justify-content:flex-end; margin-top:10px; }
+  .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:600; color:#0969da; cursor:pointer; }
   .mini-btn:hover { background:#f6f8fa; }
   .mini-btn:disabled { opacity:.6; cursor:default; }
 </style>
@@ -125,32 +126,37 @@ function setLoading(el, on) {
 
 const CHAIN_COLORS = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b" };
 
-function renderSection(chainLabel, chainKey, positions) {
+function renderSection(chainLabel, chainKey, positions, price) {
   const total = positions.reduce((a, r) => a + r.valueUsd, 0);
   const color = CHAIN_COLORS[chainKey] || "#888";
+  const priceHtml = price && price.price != null
+    ? `<span class="price">${price.sym} · ${fmtUsd(price.price)}</span>`
+    : "";
   const cards = positions.map(renderCard).join("");
   return `
   <div class="section">
     <div class="section-head">
       <span class="dot" style="background:${color}"></span>
       <h2>${chainLabel}</h2>
+      ${priceHtml}
       <span class="chip">${positions.length} поз. · ${fmtUsd(total)}</span>
     </div>
     <div class="grid">${cards}</div>
   </div>`;
 }
 
-function renderAll(positions) {
+function renderAll(positions, prices) {
+  prices = prices || {};
   const order = [["arbitrum", "Arbitrum"], ["avalanche", "Avalanche"], ["bsc", "BSC"]];
   const groups = {};
   for (const p of positions) (groups[p.chain] = groups[p.chain] || []).push(p);
 
   let html = "";
   for (const [key, label] of order) {
-    if (groups[key]) html += renderSection(label, key, groups[key]);
+    if (groups[key]) html += renderSection(label, key, groups[key], prices[key]);
   }
   for (const key of Object.keys(groups)) {
-    if (!order.some((o) => o[0] === key)) html += renderSection(key, key, groups[key]);
+    if (!order.some((o) => o[0] === key)) html += renderSection(key, key, groups[key], prices[key]);
   }
 
   document.getElementById("sections").innerHTML = html;
@@ -168,7 +174,7 @@ async function refreshAll() {
     const res = await fetch("/api/positions");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    renderAll(data.positions);
+    renderAll(data.positions, data.prices);
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
     alert("Ошибка: " + e.message);

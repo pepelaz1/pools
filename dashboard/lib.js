@@ -12,6 +12,10 @@ const CHAINS = {
     nfpm: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
     stable: "USDC",
+    native: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+    nativeSym: "ETH",
+    stableToken: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    nativePoolFee: 500,
   },
   avalanche: {
     label: "Avalanche",
@@ -19,6 +23,10 @@ const CHAINS = {
     nfpm: "0x655C406EBFa14EE2006250925e54ec43AD184f8B",
     factory: "0x740b1c1de25031C31FF4fC9A62f554A55cdC1baD",
     stable: "USDC",
+    native: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+    nativeSym: "AVAX",
+    stableToken: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+    nativePoolFee: 500,
   },
   bsc: {
     label: "BSC",
@@ -28,6 +36,10 @@ const CHAINS = {
     masterChef: "0x556B9306565093C855AEA9AE92A594704c2Cd59e",
     cakeUsdtPool: "0x7f51c8AaA6B0599aBd16674e2b17FEc7a9f674A1",
     stable: "USDT",
+    native: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+    nativeSym: "BNB",
+    stableToken: "0x55d398326f99059fF775485246999027B3197955",
+    nativePoolFee: 100,
   },
 };
 
@@ -37,6 +49,7 @@ const POSITIONS_ABI = [
 
 const POOL_ABI = [
   "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint32 feeProtocol, bool unlocked)",
+  "function token0() view returns (address)",
 ];
 
 const ERC20_ABI = [
@@ -245,4 +258,26 @@ async function readPosition(item) {
   };
 }
 
-module.exports = { CHAINS, collectItems, readPosition };
+async function getPrices() {
+  const result = {};
+  for (const [key, c] of Object.entries(CHAINS)) {
+    try {
+      const p = provider(key);
+      const factory = new ethers.Contract(c.factory, FACTORY_ABI, p);
+      const poolAddr = await factory.getPool(c.native, c.stableToken, c.nativePoolFee);
+      const pool = new ethers.Contract(poolAddr, POOL_ABI, p);
+      const [slot0, token0] = await Promise.all([pool.slot0(), pool.token0()]);
+      const dec0 = Number(await new ethers.Contract(token0, ERC20_ABI, p).decimals());
+      const dec1 = Number(await new ethers.Contract(c.stableToken, ERC20_ABI, p).decimals());
+      const rawPrice = (Number(slot0.sqrtPriceX96) / 2 ** 96) ** 2;
+      const humanPrice = rawPrice * Math.pow(10, dec0 - dec1);
+      const nativeIs0 = token0.toLowerCase() === c.native.toLowerCase();
+      result[key] = { sym: c.nativeSym, price: nativeIs0 ? humanPrice : 1 / humanPrice };
+    } catch {
+      result[key] = { sym: c.nativeSym, price: null };
+    }
+  }
+  return result;
+}
+
+module.exports = { CHAINS, collectItems, readPosition, getPrices };
