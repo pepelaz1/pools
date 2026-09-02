@@ -195,7 +195,7 @@ async function refreshOne(id) {
     const p = data.position;
     const tmp = document.createElement("div");
     tmp.innerHTML = renderCard(p);
-    card.replaceWith(tmp.firstChild);
+    card.replaceWith(tmp.firstElementChild);
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
     alert("Ошибка: " + e.message);
