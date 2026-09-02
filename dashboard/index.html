@@ -116,7 +116,8 @@ function setLoading(el, on) {
   if (!el) return;
   if (on) {
     el.dataset.html = el.innerHTML;
-    el.innerHTML = '<span class="ring"></span>';
+    const ringCls = el.classList.contains("mini-btn") ? "ring dark" : "ring";
+    el.innerHTML = `<span class="${ringCls}"></span>`;
     el.disabled = true;
   } else {
     el.disabled = false;
