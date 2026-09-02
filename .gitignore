@@ -2,4 +2,3 @@ node_modules/
 wallets.json
 positions.json
 .env
-dashboard/index.html

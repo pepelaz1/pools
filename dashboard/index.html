@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LP Dashboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f6f8fa; color:#1f2328; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  .muted { color:#6b7280; font-size: 13px; }
+  .btn { display:inline-flex; align-items:center; gap:8px; background:#0969da; color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  .btn:hover { background:#0860c4; }
+  .btn:disabled { opacity:.7; cursor:default; }
+  .ring { width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
+  .ring.dark { border-color:rgba(0,0,0,.15); border-top-color:#0969da; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin: 20px 0; }
+  .stat { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:16px; }
+  .stat .k { color:#6b7280; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  .stat .v { font-size:22px; font-weight:700; margin-top:6px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(360px,1fr)); gap:16px; }
+  .card { background:#fff; border:1px solid #e1e4e8; border-radius:14px; padding:16px; }
+  .card.out { border-color:#d4a72c; }
+  .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:6px; color:#fff; font-size:11px; font-weight:600; text-transform:capitalize; }
+  .pair { font-weight:700; font-size:15px; }
+  .fee { color:#6b7280; font-size:12px; }
+  .range-status { font-size:12px; font-weight:600; padding:3px 8px; border-radius:6px; }
+  .range-status.in { background:#dafbe1; color:#1a7f37; }
+  .range-status.outrange { background:#fff1e5; color:#bc4c00; }
+  .sub { color:#6b7280; font-size:12px; margin:8px 0 10px; }
+  .range-labels { display:flex; justify-content:space-between; font-size:11px; color:#6b7280; }
+  .rangebar { position:relative; height:6px; background:#e1e4e8; border-radius:4px; margin:6px 0 12px; }
+  .rangebar-fill { position:absolute; top:0; bottom:0; background:#1a7f37; border-radius:4px; }
+  .rangebar-dot { position:absolute; top:-3px; width:12px; height:12px; border-radius:50%; background:#1f2328; transform:translateX(-6px); }
+  .rows { border-top:1px solid #e1e4e8; margin-top:4px; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:8px 0; font-size:13px; border-bottom:1px solid #f0f1f2; }
+  .row span { color:#6b7280; }
+  .value { margin-top:12px; font-size:20px; font-weight:700; }
+  .dim { color:#6b7280; font-size:12px; font-weight:400; }
+  .card-foot { display:flex; justify-content:flex-end; margin-top:12px; }
+  .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; color:#0969da; cursor:pointer; }
+  .mini-btn:hover { background:#f6f8fa; }
+  .mini-btn:disabled { opacity:.6; cursor:default; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>LP Dashboard</h1>
+      <div class="muted" id="updated">—</div>
+    </div>
+    <button class="btn" id="refreshAll" onclick="refreshAll()">Обновить всё</button>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Стоимость ликвидности</div><div class="v" id="statValue">—</div></div>
+    <div class="stat"><div class="k">Накоплено комиссий</div><div class="v" id="statFees">—</div></div>
+    <div class="stat"><div class="k">Награды CAKE</div><div class="v" id="statCake">—</div></div>
+    <div class="stat"><div class="k">Позиции (в диапазоне)</div><div class="v" id="statCount">—</div></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+function fmt(n, dec, max) {
+  if (!isFinite(n)) return "—";
+  return n.toFixed(Math.min(dec || 18, max == null ? 6 : max)).replace(/\.?0+$/, "") || "0";
+}
+function fmtUsd(n) {
+  if (!isFinite(n)) return "—";
+  return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function badge(text, color) {
+  return `<span class="badge" style="background:${color}">${text}</span>`;
+}
+
+function renderCard(r) {
+  const dexColor = r.dex === "uniswap" ? "#ff007a" : "#1fc7d4";
+  const chainColor = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b" }[r.chain] || "#888";
+  const cakeRow = r.cake
+    ? `<div class="row"><span>Награды CAKE</span><b>${fmt(r.cake.amount, 18, 4)} CAKE · ${fmtUsd(r.cake.usd)}</b></div>`
+    : "";
+  const stable = r.chain === "bsc" ? "USDT" : "USDC";
+  return `
+  <div class="card ${r.inRange ? "" : "out"}" id="card-${r.id}">
+    <div class="card-head">
+      <div>${badge(r.dex, dexColor)} ${badge(r.chainLabel, chainColor)} <span class="pair">${r.sym0}/${r.sym1}</span> <span class="fee">${(r.fee / 10000).toFixed(2)}%</span></div>
+      <div class="range-status ${r.inRange ? "in" : "outrange"}">${r.inRange ? "в диапазоне" : "вне диапазона"}</div>
+    </div>
+    <div class="sub">${r.name || ""} · ${r.address.slice(0, 6)}…${r.address.slice(-4)} · ID ${r.tokenId}</div>
+    <div class="range-labels"><span>${r.lowerPrice.toPrecision(4)}</span><span>текущ. ${r.currentPrice.toPrecision(4)}</span><span>${r.upperPrice.toPrecision(4)}</span></div>
+    <div class="rangebar"><div class="rangebar-fill" style="left:0%;width:${r.pct}%"></div><div class="rangebar-dot" style="left:${r.pct}%"></div></div>
+    <div class="rows">
+      <div class="row"><span>Ликвидность</span><b>${fmt(r.amt0, r.dec0)} ${r.sym0} + ${fmt(r.amt1, r.dec1)} ${r.sym1}</b></div>
+      <div class="row"><span>Накоплено комиссий</span><b>${fmt(r.fee0, r.dec0, 6)} ${r.sym0} + ${fmt(r.fee1, r.dec1, 6)} ${r.sym1}</b></div>
+      ${cakeRow}
+    </div>
+    <div class="value">${fmtUsd(r.valueUsd)} <span class="dim">(в ${stable})</span></div>
+    <div class="card-foot"><button class="mini-btn refresh" onclick="refreshOne('${r.id}')">Обновить</button></div>
+  </div>`;
+}
+
+function setLoading(el, on) {
+  if (!el) return;
+  if (on) {
+    el.dataset.html = el.innerHTML;
+    el.innerHTML = '<span class="ring"></span>';
+    el.disabled = true;
+  } else {
+    el.disabled = false;
+    if (el.dataset.html) el.innerHTML = el.dataset.html;
+  }
+}
+
+function renderAll(positions) {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = positions.map(renderCard).join("");
+  document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
+  document.getElementById("statFees").textContent = fmtUsd(positions.reduce((a, r) => a + r.feeUsd, 0));
+  document.getElementById("statCake").textContent = fmtUsd(positions.reduce((a, r) => a + (r.cake ? r.cake.usd : 0), 0));
+  const inRange = positions.filter((r) => r.inRange).length;
+  document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
+}
+
+async function refreshAll() {
+  const btn = document.getElementById("refreshAll");
+  setLoading(btn, true);
+  try {
+    const res = await fetch("/api/positions");
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderAll(data.positions);
+    document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
+  } catch (e) {
+    alert("Ошибка: " + e.message);
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function refreshOne(id) {
+  const card = document.getElementById("card-" + id);
+  if (!card) return;
+  const btn = card.querySelector(".refresh");
+  setLoading(btn, true);
+  try {
+    const res = await fetch("/api/positions/" + encodeURIComponent(id));
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const p = data.position;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = renderCard(p);
+    card.replaceWith(tmp.firstChild);
+    document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
+  } catch (e) {
+    alert("Ошибка: " + e.message);
+    setLoading(btn, false);
+  }
+}
+
+refreshAll();
+</script>
+</body>
+</html>
