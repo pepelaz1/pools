@@ -1,0 +1,15 @@
+{
+  "toAddress": "0xВАШ_ОБЩИЙ_АДРЕС",
+  "positions": [
+    {
+      "address": "0xВАШ_КОШЕЛЁК",
+      "tokenId": 0,
+      "chain": "arbitrum"
+    },
+    {
+      "address": "0xВАШ_КОШЕЛЁК",
+      "tokenId": 0,
+      "chain": "avalanche"
+    }
+  ]
+}
