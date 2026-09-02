@@ -22,6 +22,11 @@
   .stat .k { color:#6b7280; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
   .stat .v { font-size:22px; font-weight:700; margin-top:6px; }
   .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(360px,1fr)); gap:16px; }
+  .section { margin-top: 26px; }
+  .section-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .section-head h2 { font-size:17px; margin:0; }
+  .section-head .dot { width:10px; height:10px; border-radius:50%; }
+  .section-head .chip { font-size:12px; color:#6b7280; }
   .card { background:#fff; border:1px solid #e1e4e8; border-radius:14px; padding:16px; }
   .card.out { border-color:#d4a72c; }
   .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -64,7 +69,7 @@
     <div class="stat"><div class="k">Позиции (в диапазоне)</div><div class="v" id="statCount">—</div></div>
   </div>
 
-  <div class="grid" id="grid"></div>
+  <div id="sections"></div>
 </div>
 
 <script>
@@ -118,9 +123,37 @@ function setLoading(el, on) {
   }
 }
 
+const CHAIN_COLORS = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b" };
+
+function renderSection(chainLabel, chainKey, positions) {
+  const total = positions.reduce((a, r) => a + r.valueUsd, 0);
+  const color = CHAIN_COLORS[chainKey] || "#888";
+  const cards = positions.map(renderCard).join("");
+  return `
+  <div class="section">
+    <div class="section-head">
+      <span class="dot" style="background:${color}"></span>
+      <h2>${chainLabel}</h2>
+      <span class="chip">${positions.length} поз. · ${fmtUsd(total)}</span>
+    </div>
+    <div class="grid">${cards}</div>
+  </div>`;
+}
+
 function renderAll(positions) {
-  const grid = document.getElementById("grid");
-  grid.innerHTML = positions.map(renderCard).join("");
+  const order = [["arbitrum", "Arbitrum"], ["avalanche", "Avalanche"], ["bsc", "BSC"]];
+  const groups = {};
+  for (const p of positions) (groups[p.chain] = groups[p.chain] || []).push(p);
+
+  let html = "";
+  for (const [key, label] of order) {
+    if (groups[key]) html += renderSection(label, key, groups[key]);
+  }
+  for (const key of Object.keys(groups)) {
+    if (!order.some((o) => o[0] === key)) html += renderSection(key, key, groups[key]);
+  }
+
+  document.getElementById("sections").innerHTML = html;
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
   document.getElementById("statFees").textContent = fmtUsd(positions.reduce((a, r) => a + r.feeUsd, 0));
   document.getElementById("statCake").textContent = fmtUsd(positions.reduce((a, r) => a + (r.cake ? r.cake.usd : 0), 0));
