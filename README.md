@@ -53,3 +53,17 @@ node collect-all.js # ежедневный запуск
 | `RPC_ARBITRUM` / `RPC_AVALANCHE` / `RPC_BSC` | свой RPC | публичные |
 
 Подробности реализации — в [`docs/KNOWLEDGE.md`](docs/KNOWLEDGE.md).
+
+## Дашборд
+
+Сводный HTML-отчёт по всем позициям (ликвидность, накопленные комиссии, награды CAKE, границы диапазона):
+
+```powershell
+cd dashboard
+npm install      # один раз
+node generate.js # генерирует index.html (читает positions.json обоих сборщиков)
+start index.html # открыть в браузере
+```
+
+Дашборд работает только на чтение (ключи не нужны): комиссии берутся через симуляцию `collect` от имени владельца.
+
