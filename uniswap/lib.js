@@ -155,7 +155,7 @@ async function collectAndSwap(wallet, tokenId, { toAddress, slippageBps = 100, c
 
   const totalUsdc = usdcCollected + swappedUsdc;
 
-  if (toAddress && totalUsdc > 0n) {
+  if (toAddress && toAddress.toLowerCase() !== me.toLowerCase() && totalUsdc > 0n) {
     if (!ethers.isAddress(toAddress)) {
       return { status: "error", reason: `неверный toAddress: ${toAddress}` };
     }
