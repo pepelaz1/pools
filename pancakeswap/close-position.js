@@ -16,9 +16,9 @@ async function main() {
 
   const password = await promptHidden("Master password: ");
 
-  let keystores;
+  let walletsRaw;
   try {
-    keystores = JSON.parse(fs.readFileSync(KEYSTORE, "utf8"));
+    walletsRaw = JSON.parse(fs.readFileSync(KEYSTORE, "utf8"));
   } catch {
     console.error("wallets.json not found");
     process.exit(1);
@@ -39,13 +39,14 @@ async function main() {
     process.exit(1);
   }
 
-  const ks = keystores.bsc || keystores.pancakeswap;
-  if (!ks) {
-    console.error("no bsc keystore found in wallets.json");
+  const walletsList = walletsRaw.wallets || [];
+  const ksEntry = walletsList[0];
+  if (!ksEntry || !ksEntry.keystore) {
+    console.error("no keystore found in wallets.json");
     process.exit(1);
   }
 
-  const wallet = await ethers.Wallet.fromEncryptedJson(ks, password);
+  const wallet = await ethers.Wallet.fromEncryptedJson(ksEntry.keystore, password);
   const provider = new ethers.JsonRpcProvider(RPC);
   const connected = wallet.connect(provider);
 
