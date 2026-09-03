@@ -298,13 +298,19 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   let cakeReceived = 0n;
   if (isStaked) {
     try {
+      console.log("  harvest...");
       const cakeBefore = await cakeC.balanceOf(me);
       await (await mc.harvest(tokenId, me)).wait();
       const cakeAfter = await cakeC.balanceOf(me);
       cakeReceived = cakeAfter - cakeBefore;
       stats.steps.push("harvest");
       stats.cakeReceived = cakeReceived;
-    } catch {}
+      console.log("  harvest ok");
+    } catch (e) {
+      console.log(`  harvest skip: ${e.shortMessage || e.message}`);
+    }
+  } else {
+    console.log("  не стейкнут, harvest пропускаю");
   }
 
   // 2. collect fees
@@ -314,32 +320,55 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     amount0Max: MAX_UINT128,
     amount1Max: MAX_UINT128,
   };
-  if (isStaked) {
-    await (await mc.collect(collectParams)).wait();
-  } else {
-    await (await pm.collect(collectParams)).wait();
+  try {
+    console.log("  collect...");
+    if (isStaked) {
+      await (await mc.collect(collectParams)).wait();
+    } else {
+      await (await pm.collect(collectParams)).wait();
+    }
+    stats.steps.push("collect");
+    console.log("  collect ok");
+  } catch (e) {
+    console.log(`  collect ошибка: ${e.shortMessage || e.message}`);
+    throw e;
   }
-  stats.steps.push("collect");
 
   // 3. unstake (removeLiquidity=true removes liquidity + returns NFT)
   if (isStaked) {
-    await (await mc.unstake(tokenId, true)).wait();
-    stats.steps.push("unstake");
+    try {
+      console.log("  unstake...");
+      await (await mc.unstake(tokenId, true)).wait();
+      stats.steps.push("unstake");
+      console.log("  unstake ok");
+    } catch (e) {
+      console.log(`  unstake ошибка: ${e.shortMessage || e.message}`);
+      throw e;
+    }
   }
 
   // 4. for non-staked: decreaseLiquidity + collect withdrawn tokens
   if (!isStaked && liquidity > 0n) {
-    await (await pm.decreaseLiquidity({
-      tokenId,
-      liquidity,
-      amount0Min: 0,
-      amount1Min: 0,
-      deadline: Math.floor(Date.now() / 1000) + 1800,
-    })).wait();
-    stats.steps.push("decreaseLiquidity");
+    try {
+      console.log("  decreaseLiquidity...");
+      await (await pm.decreaseLiquidity({
+        tokenId,
+        liquidity,
+        amount0Min: 0,
+        amount1Min: 0,
+        deadline: Math.floor(Date.now() / 1000) + 1800,
+      })).wait();
+      stats.steps.push("decreaseLiquidity");
+      console.log("  decreaseLiquidity ok");
 
-    await (await pm.collect(collectParams)).wait();
-    stats.steps.push("collectWithdrawn");
+      console.log("  collect withdrawn...");
+      await (await pm.collect(collectParams)).wait();
+      stats.steps.push("collectWithdrawn");
+      console.log("  collect withdrawn ok");
+    } catch (e) {
+      console.log(`  decrease/collect ошибка: ${e.shortMessage || e.message}`);
+      throw e;
+    }
   }
 
   // 5. swap WBNB + CAKE to USDT
