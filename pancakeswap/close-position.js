@@ -24,15 +24,16 @@ async function main() {
     process.exit(1);
   }
 
-  let items;
+  let raw;
   try {
-    items = JSON.parse(fs.readFileSync(POSITIONS, "utf8"));
+    raw = JSON.parse(fs.readFileSync(POSITIONS, "utf8"));
   } catch {
     console.error("pancakeswap/positions.json not found");
     process.exit(1);
   }
 
-  const item = items.find((it) => it.chain === "bsc" && String(it.tokenId) === tokenIdArg);
+  const items = Array.isArray(raw) ? raw : raw.positions || [];
+  const item = items.find((it) => String(it.tokenId) === tokenIdArg);
   if (!item) {
     console.error(`position ${tokenIdArg} not found in pancakeswap/positions.json`);
     process.exit(1);
