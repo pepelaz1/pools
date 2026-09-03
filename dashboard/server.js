@@ -1,13 +1,38 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { collectItems, readPosition, getPrices } = require("./lib");
+const { collectItems, readPosition, getPrices, valueInStable } = require("./lib");
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
+const SNAPSHOT_FILE = path.join(__dirname, "snapshot.json");
 
 const items = collectItems();
 const byId = new Map(items.map((it) => [it.id, it]));
+
+let snapshot = {};
+if (fs.existsSync(SNAPSHOT_FILE)) {
+  try {
+    snapshot = JSON.parse(fs.readFileSync(SNAPSHOT_FILE, "utf8"));
+  } catch {}
+}
+
+function saveSnapshot() {
+  fs.writeFileSync(SNAPSHOT_FILE, JSON.stringify(snapshot, null, 2));
+}
+
+function enrich(p) {
+  let s = snapshot[p.id];
+  if (!s) {
+    s = { amt0: p.amt0, amt1: p.amt1, price: p.currentPrice };
+    snapshot[p.id] = s;
+  }
+  const hodl = valueInStable(s.amt0, s.amt1, p.currentPrice, p.stableIs0);
+  p.hodlUsd = hodl;
+  p.ilUsd = p.valueUsd - hodl;
+  p.ilPct = hodl > 0 ? (p.ilUsd / hodl) * 100 : 0;
+  return p;
+}
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -25,6 +50,8 @@ const server = http.createServer(async (req, res) => {
         getPrices(),
       ]);
       data.sort((a, b) => b.valueUsd - a.valueUsd);
+      data.forEach(enrich);
+      saveSnapshot();
       sendJson(res, 200, { positions: data, prices, updated: new Date().toISOString() });
     } catch (e) {
       sendJson(res, 500, { error: e.shortMessage || e.message });
@@ -40,7 +67,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     try {
-      const data = await readPosition(item);
+      const data = enrich(await readPosition(item));
+      saveSnapshot();
       sendJson(res, 200, { position: data, updated: new Date().toISOString() });
     } catch (e) {
       sendJson(res, 500, { error: e.shortMessage || e.message });

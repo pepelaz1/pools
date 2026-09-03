@@ -88,6 +88,10 @@ function tickToSqrtPrice(tick) {
   return Math.pow(1.0001, Number(tick) / 2);
 }
 
+function valueInStable(amt0, amt1, price, stableIs0) {
+  return stableIs0 ? amt0 + amt1 / price : amt1 + amt0 * price;
+}
+
 function computeAmounts(pos, sqrtPriceX96, tickCurrent) {
   const tickLower = Number(pos.tickLower);
   const tickUpper = Number(pos.tickUpper);
@@ -204,8 +208,8 @@ async function readPosition(item) {
   } catch {}
 
   const stableIs0 = sym0.toUpperCase() === c.stable;
-  const valueUsd = stableIs0 ? amt0 + amt1 / price : amt1 + amt0 * price;
-  const feeUsd = stableIs0 ? fee0 + fee1 / price : fee1 + fee0 * price;
+  const valueUsd = valueInStable(amt0, amt1, price, stableIs0);
+  const feeUsd = valueInStable(fee0, fee1, price, stableIs0);
 
   let cake = null;
   if (c.masterChef) {
@@ -247,6 +251,7 @@ async function readPosition(item) {
     lowerPrice,
     upperPrice,
     currentPrice: price,
+    stableIs0,
     amt0,
     amt1,
     fee0,
@@ -280,4 +285,4 @@ async function getPrices() {
   return result;
 }
 
-module.exports = { CHAINS, collectItems, readPosition, getPrices };
+module.exports = { CHAINS, collectItems, readPosition, getPrices, valueInStable };

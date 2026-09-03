@@ -261,6 +261,115 @@ function prompt(question) {
   });
 }
 
+async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
+  const me = wallet.address;
+  const provider = wallet.provider;
+  const pm = new ethers.Contract(POSITION_MANAGER, PM_ABI, wallet);
+  const mc = new ethers.Contract(MASTERCHEF, MC_ABI, wallet);
+  const usdtC = new ethers.Contract(USDT, ERC20_ABI, wallet);
+  const cakeC = new ethers.Contract(CAKE, ERC20_ABI, wallet);
+  const wbnbC = new ethers.Contract(WBNB, ERC20_ABI, wallet);
+
+  const pos = await pm.positions(tokenId);
+  const liquidity = pos.liquidity;
+
+  const wbnbIdx =
+    pos.token0.toLowerCase() === WBNB.toLowerCase()
+      ? 0
+      : pos.token1.toLowerCase() === WBNB.toLowerCase()
+        ? 1
+        : -1;
+
+  if (wbnbIdx === -1) {
+    return { status: "skip", reason: "в пуле нет WBNB" };
+  }
+
+  let isStaked = false;
+  try {
+    const info = await mc.userPositionInfos(tokenId);
+    isStaked = info.owner.toLowerCase() === me.toLowerCase();
+  } catch {
+    isStaked = false;
+  }
+
+  const stats = { tokenId, status: "ok", steps: [] };
+
+  // 1. unstake if staked
+  if (isStaked) {
+    const tx = await mc.unstake(tokenId, true);
+    const receipt = await tx.wait();
+    stats.steps.push("unstake");
+    stats.unstakeTx = receipt.hash;
+  }
+
+  // 2. decreaseLiquidity to 0
+  if (liquidity > 0n) {
+    const tx = await pm.decreaseLiquidity({
+      tokenId,
+      liquidity,
+      amount0Min: 0,
+      amount1Min: 0,
+      deadline: Math.floor(Date.now() / 1000) + 1800,
+    });
+    const receipt = await tx.wait();
+    stats.steps.push("decreaseLiquidity");
+    stats.decreaseTx = receipt.hash;
+  }
+
+  // 3. collect fees
+  const collectParams = {
+    tokenId,
+    recipient: me,
+    amount0Max: MAX_UINT128,
+    amount1Max: MAX_UINT128,
+  };
+  const collectTx = await pm.collect(collectParams);
+  const collectReceipt = await collectTx.wait();
+  stats.steps.push("collect");
+  stats.collectTx = collectReceipt.hash;
+
+  // 4. harvest CAKE
+  let cakeReceived = 0n;
+  if (isStaked) {
+    try {
+      const cakeBefore = await cakeC.balanceOf(me);
+      await (await mc.harvest(tokenId, me)).wait();
+      const cakeAfter = await cakeC.balanceOf(me);
+      cakeReceived = cakeAfter - cakeBefore;
+      stats.steps.push("harvest");
+      stats.cakeReceived = cakeReceived;
+    } catch {}
+  }
+
+  // 5. get balances after collect
+  const usdt0 = await usdtC.balanceOf(me);
+  const wbnb0 = await wbnbC.balanceOf(me);
+  const cake0 = await cakeC.balanceOf(me);
+
+  // 6. swap WBNB to USDT
+  let swappedWbnb = 0n;
+  if (wbnb0 > 0n) {
+    try {
+      swappedWbnb = await swapToUsdt(wallet, WBNB, wbnb0, WBNB_USDT_FEE, slippageBps);
+    } catch {}
+    stats.steps.push("swapWbnb");
+  }
+
+  // 7. swap CAKE to USDT
+  let swappedCake = 0n;
+  if (cake0 > 0n) {
+    try {
+      swappedCake = await swapToUsdt(wallet, CAKE, cake0, CAKE_USDT_FEE, slippageBps);
+    } catch {}
+    stats.steps.push("swapCake");
+  }
+
+  const usdtFinal = await usdtC.balanceOf(me);
+  stats.usdtReceived = usdtFinal;
+
+  return stats;
+}
+
 async function getOwner(provider, tokenId) {
   const pm = new ethers.Contract(POSITION_MANAGER, PM_ABI, provider);
   const owner = await pm.ownerOf(tokenId);
@@ -274,6 +383,7 @@ async function getOwner(provider, tokenId) {
 
 module.exports = {
   collectAndSwap,
+  closePosition,
   getOwner,
   RPC,
   WBNB,
