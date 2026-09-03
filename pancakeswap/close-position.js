@@ -8,6 +8,12 @@ const KEYSTORE = path.join(__dirname, "..", "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
 
 async function main() {
+  const tokenIdArg = process.argv[2];
+  if (!tokenIdArg) {
+    console.log("usage: node close-position.js <tokenId>");
+    process.exit(1);
+  }
+
   const password = await promptHidden("Master password: ");
 
   let keystores;
@@ -26,10 +32,10 @@ async function main() {
     process.exit(1);
   }
 
-  const pcsPositions = items.filter((it) => it.chain === "bsc");
-  if (pcsPositions.length === 0) {
-    console.log("no pancakeswap positions found");
-    process.exit(0);
+  const item = items.find((it) => it.chain === "bsc" && String(it.tokenId) === tokenIdArg);
+  if (!item) {
+    console.error(`position ${tokenIdArg} not found in pancakeswap/positions.json`);
+    process.exit(1);
   }
 
   const ks = keystores.bsc || keystores.pancakeswap;
@@ -50,33 +56,23 @@ async function main() {
   ).balanceOf(wallet.address);
 
   console.log(`\nwallet: ${wallet.address}`);
-  console.log(`positions: ${pcsPositions.length}\n`);
+  console.log(`closing position ${item.tokenId}\n`);
 
-  let totalCake = 0n;
-  let totalUsdt = 0n;
-
-  for (const item of pcsPositions) {
-    console.log(`--- position ${item.tokenId} ---`);
-    try {
-      const stats = await closePosition(connected, item.tokenId, {
-        slippageBps: 100,
-      });
-      if (stats.status === "skip") {
-        console.log(`skip: ${stats.reason}`);
-        continue;
-      }
-      if (stats.cakeReceived) {
-        totalCake += stats.cakeReceived;
-      }
-      totalUsdt = stats.usdtReceived;
+  try {
+    const stats = await closePosition(connected, item.tokenId, {
+      slippageBps: 100,
+    });
+    if (stats.status === "skip") {
+      console.log(`skip: ${stats.reason}`);
+    } else {
       console.log(`done. steps: ${stats.steps.join(", ")}`);
       console.log(`usdt now: ${ethers.formatUnits(stats.usdtReceived, 18)}`);
       if (stats.cakeReceived) {
         console.log(`cake harvested: ${ethers.formatUnits(stats.cakeReceived, 18)}`);
       }
-    } catch (e) {
-      console.error(`error: ${e.shortMessage || e.message}`);
     }
+  } catch (e) {
+    console.error(`error: ${e.shortMessage || e.message}`);
   }
 
   const balAfter = await provider.getBalance(wallet.address);
@@ -88,10 +84,7 @@ async function main() {
 
   console.log("\n=== stats ===");
   console.log(`bsc spent: ${ethers.formatEther(balBefore - balAfter)} BNB`);
-  console.log(`usdt: ${ethers.formatUnits(usdtAfter - usdtBefore, 18)} USDT`);
-  if (totalCake > 0n) {
-    console.log(`cake harvested: ${ethers.formatUnits(totalCake, 18)} CAKE`);
-  }
+  console.log(`usdt delta: ${ethers.formatUnits(usdtAfter - usdtBefore, 18)} USDT`);
 }
 
 main().catch((e) => {
