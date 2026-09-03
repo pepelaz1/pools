@@ -287,11 +287,9 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   }
 
   let isStaked = false;
-  try {
-    const info = await mc.userPositionInfos(tokenId);
-    isStaked = info.owner.toLowerCase() === me.toLowerCase();
-  } catch {
-    isStaked = false;
+  const nftOwner = await pm.ownerOf(tokenId);
+  if (nftOwner.toLowerCase() === MASTERCHEF.toLowerCase()) {
+    isStaked = true;
   }
 
   const stats = { tokenId, status: "ok", steps: [] };
