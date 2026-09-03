@@ -35,7 +35,7 @@ const MC_ABI = [
   "function harvest(uint256 tokenId, address to)",
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
   "function userPositionInfos(uint256 tokenId) view returns (uint256 liquidity, uint256 boostLiquidity, int24 tickLower, int24 tickUpper, uint256 rewardGrowthInside, uint256 rewardGrowthInside2, address owner, uint256 boostMultiplier, uint256 precision)",
-  "function unstake(uint256 tokenId, bool removeLiquidity)",
+  "function withdraw(uint256 tokenId, address to) returns (uint256)",
   "function burn(uint256 tokenId)",
 ];
 
@@ -294,26 +294,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
 
   const stats = { tokenId, status: "ok", steps: [] };
 
-  // 1. harvest CAKE first (before unstake)
-  let cakeReceived = 0n;
-  if (isStaked) {
-    try {
-      console.log("  harvest...");
-      const cakeBefore = await cakeC.balanceOf(me);
-      await (await mc.harvest(tokenId, me)).wait();
-      const cakeAfter = await cakeC.balanceOf(me);
-      cakeReceived = cakeAfter - cakeBefore;
-      stats.steps.push("harvest");
-      stats.cakeReceived = cakeReceived;
-      console.log("  harvest ok");
-    } catch (e) {
-      console.log(`  harvest skip: ${e.shortMessage || e.message}`);
-    }
-  } else {
-    console.log("  не стейкнут, harvest пропускаю");
-  }
-
-  // 2. collect fees
+  // 1. collect fees from MasterChef
   const collectParams = {
     tokenId,
     recipient: me,
@@ -322,11 +303,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   };
   try {
     console.log("  collect...");
-    if (isStaked) {
-      await (await mc.collect(collectParams)).wait();
-    } else {
-      await (await pm.collect(collectParams)).wait();
-    }
+    await (await mc.collect(collectParams)).wait();
     stats.steps.push("collect");
     console.log("  collect ok");
   } catch (e) {
@@ -334,21 +311,29 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     throw e;
   }
 
-  // 3. unstake (removeLiquidity=true removes liquidity + returns NFT)
+  // 2. withdraw + harvest (unstakes NFT, harvests CAKE, returns NFT)
   if (isStaked) {
     try {
-      console.log("  unstake...");
-      await (await mc.unstake(tokenId, true)).wait();
-      stats.steps.push("unstake");
-      console.log("  unstake ok");
+      console.log("  withdraw...");
+      const cakeBefore = await cakeC.balanceOf(me);
+      await (await mc.withdraw(tokenId, me)).wait();
+      const cakeAfter = await cakeC.balanceOf(me);
+      const cakeReceived = cakeAfter - cakeBefore;
+      if (cakeReceived > 0n) {
+        stats.cakeReceived = cakeReceived;
+        console.log(`  withdraw ok, CAKE: ${ethers.formatUnits(cakeReceived, 18)}`);
+      } else {
+        console.log("  withdraw ok");
+      }
+      stats.steps.push("withdraw");
     } catch (e) {
-      console.log(`  unstake ошибка: ${e.shortMessage || e.message}`);
+      console.log(`  withdraw ошибка: ${e.shortMessage || e.message}`);
       throw e;
     }
   }
 
-  // 4. for non-staked: decreaseLiquidity + collect withdrawn tokens
-  if (!isStaked && liquidity > 0n) {
+  // 3. decreaseLiquidity + collect withdrawn tokens (NFT is with user now)
+  if (liquidity > 0n) {
     try {
       console.log("  decreaseLiquidity...");
       await (await pm.decreaseLiquidity({
