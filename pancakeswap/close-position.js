@@ -4,7 +4,7 @@ const path = require("path");
 const { ethers } = require("ethers");
 const { closePosition, RPC, prompt, promptHidden } = require("./lib");
 
-const KEYSTORE = path.join(__dirname, "..", "wallets.json");
+const KEYSTORE = path.join(__dirname, "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
 
 async function main() {
