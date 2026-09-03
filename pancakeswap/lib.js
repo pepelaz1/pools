@@ -35,6 +35,8 @@ const MC_ABI = [
   "function harvest(uint256 tokenId, address to)",
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
   "function userPositionInfos(uint256 tokenId) view returns (uint256 liquidity, uint256 boostLiquidity, int24 tickLower, int24 tickUpper, uint256 rewardGrowthInside, uint256 rewardGrowthInside2, address owner, uint256 boostMultiplier, uint256 precision)",
+  "function unstake(uint256 tokenId, bool removeLiquidity)",
+  "function burn(uint256 tokenId)",
 ];
 
 const SWAP_ABI = [
@@ -294,41 +296,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
 
   const stats = { tokenId, status: "ok", steps: [] };
 
-  // 1. unstake if staked
-  if (isStaked) {
-    const tx = await mc.unstake(tokenId, true);
-    const receipt = await tx.wait();
-    stats.steps.push("unstake");
-    stats.unstakeTx = receipt.hash;
-  }
-
-  // 2. decreaseLiquidity to 0
-  if (liquidity > 0n) {
-    const tx = await pm.decreaseLiquidity({
-      tokenId,
-      liquidity,
-      amount0Min: 0,
-      amount1Min: 0,
-      deadline: Math.floor(Date.now() / 1000) + 1800,
-    });
-    const receipt = await tx.wait();
-    stats.steps.push("decreaseLiquidity");
-    stats.decreaseTx = receipt.hash;
-  }
-
-  // 3. collect fees
-  const collectParams = {
-    tokenId,
-    recipient: me,
-    amount0Max: MAX_UINT128,
-    amount1Max: MAX_UINT128,
-  };
-  const collectTx = await pm.collect(collectParams);
-  const collectReceipt = await collectTx.wait();
-  stats.steps.push("collect");
-  stats.collectTx = collectReceipt.hash;
-
-  // 4. harvest CAKE
+  // 1. harvest CAKE first (before unstake)
   let cakeReceived = 0n;
   if (isStaked) {
     try {
@@ -341,8 +309,42 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     } catch {}
   }
 
-  // 5. get balances after collect
-  const usdt0 = await usdtC.balanceOf(me);
+  // 2. collect fees
+  const collectParams = {
+    tokenId,
+    recipient: me,
+    amount0Max: MAX_UINT128,
+    amount1Max: MAX_UINT128,
+  };
+  if (isStaked) {
+    await (await mc.collect(collectParams)).wait();
+  } else {
+    await (await pm.collect(collectParams)).wait();
+  }
+  stats.steps.push("collect");
+
+  // 3. unstake (removeLiquidity=true removes liquidity + returns NFT)
+  if (isStaked) {
+    await (await mc.unstake(tokenId, true)).wait();
+    stats.steps.push("unstake");
+  }
+
+  // 4. for non-staked: decreaseLiquidity + collect withdrawn tokens
+  if (!isStaked && liquidity > 0n) {
+    await (await pm.decreaseLiquidity({
+      tokenId,
+      liquidity,
+      amount0Min: 0,
+      amount1Min: 0,
+      deadline: Math.floor(Date.now() / 1000) + 1800,
+    })).wait();
+    stats.steps.push("decreaseLiquidity");
+
+    await (await pm.collect(collectParams)).wait();
+    stats.steps.push("collectWithdrawn");
+  }
+
+  // 5. swap WBNB + CAKE to USDT
   const wbnb0 = await wbnbC.balanceOf(me);
   const cake0 = await cakeC.balanceOf(me);
 
