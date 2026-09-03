@@ -294,7 +294,20 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
 
   const stats = { tokenId, status: "ok", steps: [] };
 
-  // 1. collect fees from MasterChef
+  // 1. withdraw + harvest (unstakes NFT, harvests CAKE, returns NFT to wallet)
+  if (isStaked) {
+    try {
+      console.log("  withdraw...");
+      await (await mc.withdraw(tokenId, me)).wait();
+      stats.steps.push("withdraw");
+      console.log("  withdraw ok");
+    } catch (e) {
+      console.log(`  withdraw ошибка: ${e.shortMessage || e.message}`);
+      throw e;
+    }
+  }
+
+  // 2. collect fees from PM (NFT is back in wallet now)
   const collectParams = {
     tokenId,
     recipient: me,
@@ -303,7 +316,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   };
   try {
     console.log("  collect...");
-    await (await mc.collect(collectParams)).wait();
+    await (await pm.collect(collectParams)).wait();
     stats.steps.push("collect");
     console.log("  collect ok");
   } catch (e) {
@@ -311,28 +324,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     throw e;
   }
 
-  // 2. withdraw + harvest (unstakes NFT, harvests CAKE, returns NFT)
-  if (isStaked) {
-    try {
-      console.log("  withdraw...");
-      const cakeBefore = await cakeC.balanceOf(me);
-      await (await mc.withdraw(tokenId, me)).wait();
-      const cakeAfter = await cakeC.balanceOf(me);
-      const cakeReceived = cakeAfter - cakeBefore;
-      if (cakeReceived > 0n) {
-        stats.cakeReceived = cakeReceived;
-        console.log(`  withdraw ok, CAKE: ${ethers.formatUnits(cakeReceived, 18)}`);
-      } else {
-        console.log("  withdraw ok");
-      }
-      stats.steps.push("withdraw");
-    } catch (e) {
-      console.log(`  withdraw ошибка: ${e.shortMessage || e.message}`);
-      throw e;
-    }
-  }
-
-  // 3. decreaseLiquidity + collect withdrawn tokens (NFT is with user now)
+  // 3. decreaseLiquidity + collect withdrawn tokens
   if (liquidity > 0n) {
     try {
       console.log("  decreaseLiquidity...");
