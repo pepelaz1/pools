@@ -177,8 +177,6 @@ async function main() {
   console.log(`  tick: ${slot0.tick}, liquidity: ${liq}`);
 
   const quoter = new ethers.Contract("0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997", QUOTER_ABI, provider);
-  const pmForPreview = new ethers.Contract(CFG.positionManager, PM_ABI, provider);
-  const deadline = Math.floor(Date.now() / 1000) + 1800;
 
   // Find a token ratio that uses the whole USDT budget in the concentrated range.
   const currentTick = Number(slot0.tick);
@@ -207,11 +205,17 @@ async function main() {
     console.log(`\nтекущий тик ${currentTick} >= ${tickUpper} (выше диапазона)`);
     console.log(`  позиция = 100% WBNB`);
   } else {
+    const sqrtCurrent = Number(slot0.sqrtPriceX96) / 2 ** 96;
+    const sqrtLower = Math.pow(1.0001, tickLower / 2);
+    const sqrtUpper = Math.pow(1.0001, tickUpper / 2);
+    const amount0PerLiquidity = 1 / sqrtCurrent - 1 / sqrtUpper;
+    const amount1PerLiquidity = sqrtCurrent - sqrtLower;
+    const wbnbPerUsdt = amount1PerLiquidity / amount0PerLiquidity;
+
     let low = 0n;
     let high = amountIn;
 
-    // Use the router quote and a simulated mint to account for both price impact
-    // and the non-linear liquidity curve.
+    // Use the exact liquidity ratio and router quote to account for price impact.
     for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
       const candidateSwap = (low + high) / 2n;
       const candidateUsdt = amountIn - candidateSwap;
@@ -222,21 +226,11 @@ async function main() {
         fee: CFG.fee,
         sqrtPriceLimitX96: 0,
       });
-      const preview = await pmForPreview.mint.staticCall({
-        token0: t0,
-        token1: t1,
-        fee: CFG.fee,
-        tickLower,
-        tickUpper,
-        amount0Desired: usdtIs0 ? candidateUsdt : quote.amountOut,
-        amount1Desired: usdtIs0 ? quote.amountOut : candidateUsdt,
-        amount0Min: 0,
-        amount1Min: 0,
-        recipient: wallet.address,
-        deadline,
-      });
-      const usedUsdt = usdtIs0 ? preview.amount0 : preview.amount1;
-      if (usedUsdt === candidateUsdt) high = candidateSwap;
+      const requiredWbnb = ethers.parseUnits(
+        (Number(ethers.formatUnits(candidateUsdt, 18)) * wbnbPerUsdt).toFixed(18),
+        18,
+      );
+      if (quote.amountOut >= requiredWbnb) high = candidateSwap;
       else low = candidateSwap + 1n;
     }
 
@@ -315,6 +309,7 @@ async function main() {
   console.log(`   desired: amount0=${ethers.formatUnits(amount0Desired, 18)}, amount1=${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
+  const deadline = Math.floor(Date.now() / 1000) + 1800;
 
   // preview mint
   const mintParams = {
