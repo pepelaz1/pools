@@ -18,7 +18,6 @@ const FACTORY_ABI = ["function getPool(address,address,uint24) view returns (add
 const ERC20_ABI = ["function balanceOf(address) view returns (uint256)", "function symbol() view returns (string)", "function decimals() view returns (uint8)"];
 
 async function main() {
-  const amount = process.argv[2] || "0.05";
   const password = await promptHidden("мастер-пароль: ");
   const walletsRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "wallets.json"), "utf8"));
   const keystore = walletsRaw.wallets[0].keystore;
@@ -30,9 +29,12 @@ async function main() {
   const bnbBal = await provider.getBalance(wallet.address);
   console.log(`tBNB: ${ethers.formatEther(bnbBal)}`);
 
-  const swapAmount = ethers.parseEther(amount);
-  if (bnbBal < swapAmount) {
-    console.log("недостаточно tBNB");
+  // оставляем 0.05 tBNB на газ
+  const gasReserve = ethers.parseEther("0.05");
+  const swapAmount = bnbBal - gasReserve;
+
+  if (swapAmount <= 0n) {
+    console.log("недостаточно tBNB (нужно минимум 0.05 на газ)");
     return;
   }
 
@@ -48,7 +50,7 @@ async function main() {
     return;
   }
 
-  console.log(`свапаю ${amount} tBNB -> USDT...`);
+  console.log(`свапаю ${ethers.formatEther(swapAmount)} tBNB -> USDT (оставляю 0.05 на газ)...`);
   const tx = await router.exactInputSingle({
     tokenIn: WBNB,
     tokenOut: USDT,
