@@ -17,7 +17,7 @@ const CFG = {
   factory: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
   usdt: "0x55d398326f99059fF775485246999027B3197955",
   wbnb: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
-  fee: 100,
+  fee: 500,
 };
 
 const ERC20_ABI = [
