@@ -308,7 +308,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     }
   }
 
-  // 2. collect fees from PM (NFT is back in wallet now)
+  // 2. collect all tokens (fees + withdrawn liquidity) from PM
   const collectParams = {
     tokenId,
     recipient: me,
@@ -325,25 +325,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     throw e;
   }
 
-  // 3. burn (remove all liquidity) + collect withdrawn tokens
-  if (liquidity > 0n) {
-    try {
-      console.log("  burn...");
-      await (await pm.burn(tokenId)).wait();
-      stats.steps.push("burn");
-      console.log("  burn ok");
-
-      console.log("  collect withdrawn...");
-      await (await pm.collect(collectParams)).wait();
-      stats.steps.push("collectWithdrawn");
-      console.log("  collect withdrawn ok");
-    } catch (e) {
-      console.log(`  burn/collect ошибка: ${e.shortMessage || e.message}`);
-      throw e;
-    }
-  }
-
-  // 5. swap WBNB + CAKE to USDT
+  // 3. swap WBNB + CAKE to USDT
   const wbnb0 = await wbnbC.balanceOf(me);
   const cake0 = await cakeC.balanceOf(me);
 
