@@ -294,6 +294,12 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     isStaked = true;
   }
 
+  // Only swap tokens released by this position, never the wallet's existing balance.
+  const [wbnbBefore, cakeBefore] = await Promise.all([
+    wbnbC.balanceOf(me),
+    cakeC.balanceOf(me),
+  ]);
+
   const stats = { tokenId, status: "ok", steps: [] };
 
   // 1. withdraw + harvest (unstakes NFT, harvests CAKE, returns NFT to wallet)
@@ -354,23 +360,26 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   }
 
   // 4. swap WBNB + CAKE to USDT
-  const wbnb0 = await wbnbC.balanceOf(me);
-  const cake0 = await cakeC.balanceOf(me);
+  const [wbnbAfter, cakeAfter] = await Promise.all([
+    wbnbC.balanceOf(me),
+    cakeC.balanceOf(me),
+  ]);
+  const wbnbFromPosition = wbnbAfter > wbnbBefore ? wbnbAfter - wbnbBefore : 0n;
+  const cakeFromPosition = cakeAfter > cakeBefore ? cakeAfter - cakeBefore : 0n;
 
-  // 6. swap WBNB to USDT
+  // Swap only the WBNB and CAKE that this position released.
   let swappedWbnb = 0n;
-  if (wbnb0 > 0n) {
+  if (wbnbFromPosition > 0n) {
     try {
-      swappedWbnb = await swapToUsdt(wallet, WBNB, wbnb0, WBNB_USDT_FEE, slippageBps);
+      swappedWbnb = await swapToUsdt(wallet, WBNB, wbnbFromPosition, WBNB_USDT_FEE, slippageBps);
     } catch {}
     stats.steps.push("swapWbnb");
   }
 
-  // 7. swap CAKE to USDT
   let swappedCake = 0n;
-  if (cake0 > 0n) {
+  if (cakeFromPosition > 0n) {
     try {
-      swappedCake = await swapToUsdt(wallet, CAKE, cake0, CAKE_USDT_FEE, slippageBps);
+      swappedCake = await swapToUsdt(wallet, CAKE, cakeFromPosition, CAKE_USDT_FEE, slippageBps);
     } catch {}
     stats.steps.push("swapCake");
   }
