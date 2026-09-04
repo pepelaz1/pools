@@ -60,6 +60,21 @@ function priceToTick(price) {
   return Math.round(Math.log(price) / Math.log(1.0001));
 }
 
+function tickToSqrtPrice(tick) {
+  const base = BigInt(Math.round(1.0001 * 1e18));
+  const exp = tick < 0 ? BigInt(-tick) : BigInt(tick);
+  let result = BigInt(1e18);
+  let basePow = base;
+  let e = exp;
+  while (e > 0n) {
+    if (e & 1n) result = result * basePow / BigInt(1e18);
+    basePow = basePow * basePow / BigInt(1e18);
+    e >>= 1n;
+  }
+  if (tick < 0) result = BigInt(1e36) / result;
+  return BigInt(Math.round(Math.sqrt(Number(result)) * 65536));
+}
+
 function parseArgs() {
   const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 
@@ -108,7 +123,6 @@ async function main() {
   const usdtIs0 = CFG.usdt.toLowerCase() === t0.toLowerCase();
 
   const amountIn = ethers.parseUnits(amountUsd.toString(), 18);
-  const halfAmount = amountIn / 2n;
 
   // проверки балансов
   const usdtC = new ethers.Contract(CFG.usdt, ERC20_ABI, wallet);
@@ -132,18 +146,6 @@ async function main() {
     process.exit(1);
   }
 
-  // котировка
-  const quoter = new ethers.Contract("0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997", QUOTER_ABI, provider);
-  const quoteRes = await quoter.quoteExactInputSingle.staticCall({
-    tokenIn: CFG.usdt,
-    tokenOut: CFG.wbnb,
-    amountIn: halfAmount,
-    fee: CFG.fee,
-    sqrtPriceLimitX96: 0,
-  });
-  const wbnbExpected = quoteRes.amountOut;
-  console.log(`\nкотировка: ${ethers.formatUnits(halfAmount, 18)} USDT -> ${ethers.formatUnits(wbnbExpected, 18)} WBNB`);
-
   // pool check
   const f = new ethers.Contract(CFG.factory, FACTORY_ABI, provider);
   const poolAddr = await f.getPool(t0, t1, CFG.fee);
@@ -155,6 +157,63 @@ async function main() {
   const [slot0, liq] = await Promise.all([pool.slot0(), pool.liquidity()]);
   console.log(`пул: ${poolAddr}`);
   console.log(`  tick: ${slot0.tick}, liquidity: ${liq}`);
+
+  const quoter = new ethers.Contract("0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997", QUOTER_ABI, provider);
+
+  // calculate correct token amounts based on current tick
+  const currentTick = Number(slot0.tick);
+
+  let usdtAmount, wbnbAmount, swapAmountIn;
+
+  if (currentTick < tickLower) {
+    // price below range — position is 100% WBNB (token1)
+    usdtAmount = 0n;
+    swapAmountIn = amountIn;
+    const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
+      tokenIn: CFG.usdt,
+      tokenOut: CFG.wbnb,
+      amountIn: swapAmountIn,
+      fee: CFG.fee,
+      sqrtPriceLimitX96: 0,
+    });
+    wbnbAmount = wbnbQuoteRes.amountOut;
+    console.log(`\nтекущий тик ${currentTick} < ${tickLower} (ниже диапазона)`);
+    console.log(`  позиция = 100% WBNB`);
+  } else if (currentTick >= tickUpper) {
+    // price above range — position is 100% USDT (token0)
+    usdtAmount = amountIn;
+    wbnbAmount = 0n;
+    swapAmountIn = 0n;
+    console.log(`\nтекущий тик ${currentTick} >= ${tickUpper} (выше диапазона)`);
+    console.log(`  позиция = 100% USDT`);
+  } else {
+    // price within range — use tick position
+    // fraction: 0 = at lower tick, 1 = at upper tick
+    const fraction = (currentTick - tickLower) / (tickUpper - tickLower);
+
+    // at lower: 100% token0, at upper: 100% token1
+    const token0Fraction = 1 - fraction;
+    const token1Fraction = fraction;
+
+    usdtAmount = BigInt(Math.round(Number(amountIn) * token0Fraction));
+    const wbnbValue = amountUsd * token1Fraction;
+    swapAmountIn = ethers.parseUnits(wbnbValue.toFixed(6), 18);
+    const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
+      tokenIn: CFG.usdt,
+      tokenOut: CFG.wbnb,
+      amountIn: swapAmountIn,
+      fee: CFG.fee,
+      sqrtPriceLimitX96: 0,
+    });
+    wbnbAmount = wbnbQuoteRes.amountOut;
+
+    console.log(`\nтекущий тик ${currentTick} в диапазоне [${tickLower}, ${tickUpper}]`);
+    console.log(`  позиция в диапазоне: ${(fraction * 100).toFixed(1)}% от нижней границы`);
+    console.log(`  USDT: ${(token0Fraction * 100).toFixed(1)}%, WBNB: ${(token1Fraction * 100).toFixed(1)}%`);
+  }
+
+  console.log(`  USDT (token0): ${ethers.formatUnits(usdtAmount, 18)}`);
+  console.log(`  WBNB (token1): ${ethers.formatUnits(wbnbAmount, 18)}`);
 
   if (DRY_RUN) {
     console.log("\n=== dry run завершён, всё ок ===");
@@ -184,29 +243,32 @@ async function main() {
     console.log("   approve ok");
   }
 
-  // 2. swap half USDT -> WBNB (через fee=500 пул)
-  console.log("2. свап USDT -> WBNB...");
-  const wbnbBefore = await wbnbC.balanceOf(wallet.address);
-  const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
-  await (await router.exactInputSingle({
-    tokenIn: CFG.usdt,
-    tokenOut: CFG.wbnb,
-    fee: 500,
-    recipient: wallet.address,
-    amountIn: halfAmount,
-    amountOutMinimum: 0,
-    sqrtPriceLimitX96: 0,
-  })).wait();
-  const wbnbAfter = await wbnbC.balanceOf(wallet.address);
-  const wbnbReceived = wbnbAfter - wbnbBefore;
-  console.log(`   получено: ${ethers.formatUnits(wbnbReceived, 18)} WBNB`);
+  // swap USDT -> WBNB
+  let wbnbReceived = 0n;
+  if (swapAmountIn > 0n) {
+    console.log("\n2. свап USDT -> WBNB...");
+    const wbnbBefore = await wbnbC.balanceOf(wallet.address);
+    const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
+    await (await router.exactInputSingle({
+      tokenIn: CFG.usdt,
+      tokenOut: CFG.wbnb,
+      fee: CFG.fee,
+      recipient: wallet.address,
+      amountIn: swapAmountIn,
+      amountOutMinimum: 0,
+      sqrtPriceLimitX96: 0,
+    })).wait();
+    const wbnbAfter = await wbnbC.balanceOf(wallet.address);
+    wbnbReceived = wbnbAfter - wbnbBefore;
+    console.log(`   получено: ${ethers.formatUnits(wbnbReceived, 18)} WBNB`);
+  } else {
+    console.log("\n2. свап USDT -> WBNB не нужен");
+  }
 
   // 3. mint position
-  console.log("3. создаю позицию...");
-  const usdtLeft = amountIn - halfAmount;
-
-  const amount0Desired = usdtIs0 ? usdtLeft : wbnbReceived;
-  const amount1Desired = usdtIs0 ? wbnbReceived : usdtLeft;
+  console.log("\n3. создаю позицию...");
+  const amount0Desired = usdtIs0 ? usdtAmount : wbnbReceived;
+  const amount1Desired = usdtIs0 ? wbnbReceived : usdtAmount;
   console.log(`   desired: amount0=${ethers.formatUnits(amount0Desired, 18)}, amount1=${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
