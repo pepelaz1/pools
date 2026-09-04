@@ -17,7 +17,7 @@ const CFG = {
   factory: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
   usdt: "0x55d398326f99059fF775485246999027B3197955",
   wbnb: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
-  fee: 500,
+  fee: 100,
 };
 
 const ERC20_ABI = [
@@ -173,14 +173,14 @@ async function main() {
     console.log("\n1. USDT уже approved");
   }
 
-  // 2. swap half USDT -> WBNB
+  // 2. swap half USDT -> WBNB (через fee=500 пул)
   console.log("2. свап USDT -> WBNB...");
   const wbnbBefore = await wbnbC.balanceOf(wallet.address);
   const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
   await (await router.exactInputSingle({
     tokenIn: CFG.usdt,
     tokenOut: CFG.wbnb,
-    fee: CFG.fee,
+    fee: 500,
     recipient: wallet.address,
     amountIn: halfAmount,
     amountOutMinimum: 0,
