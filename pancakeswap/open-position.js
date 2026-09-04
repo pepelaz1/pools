@@ -16,7 +16,7 @@ const CFG = TESTNET
       positionManager: "0x427bF5b37357632377eCbEC9de3626C71A5396c1",
       masterChef: "0x4c650FB471fe4e0f476fD3437C3411B1122c4e3B",
       factory: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
-      usdt: "0x337610d47C3Ff20e1079C628Aa4D98798Ca7d52d",
+      usdt: "0x66E972502A34A625828C544a1914E8D8cc2A9dE5",
       wbnb: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
       usdtDec: 18,
       wbnbDec: 18,
