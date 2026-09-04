@@ -329,7 +329,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   // 3. decreaseLiquidity + collect withdrawn tokens
   if (liquidity > 0n) {
     try {
-      console.log("  decreaseLiquidity...");
+      console.log("  забираю ликвидность...");
       await (await pm.decreaseLiquidity({
         tokenId,
         liquidity,
@@ -338,12 +338,12 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
         deadline: Math.floor(Date.now() / 1000) + 1800,
       })).wait();
       stats.steps.push("decreaseLiquidity");
-      console.log("  decreaseLiquidity ok");
+      console.log("  ликвидность забрана");
 
-      console.log("  collect withdrawn...");
+      console.log("  забираю токены...");
       await (await pm.collect(collectParams)).wait();
       stats.steps.push("collectWithdrawn");
-      console.log("  collect withdrawn ok");
+      console.log("  токены забраны");
     } catch (e) {
       console.log(`  decrease/collect ошибка: ${e.shortMessage || e.message}`);
       throw e;
