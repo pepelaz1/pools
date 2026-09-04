@@ -37,7 +37,7 @@ const MC_ABI = [
   "function harvest(uint256 tokenId, address to)",
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
   "function userPositionInfos(uint256 tokenId) view returns (uint256 liquidity, uint256 boostLiquidity, int24 tickLower, int24 tickUpper, uint256 rewardGrowthInside, uint256 rewardGrowthInside2, address owner, uint256 boostMultiplier, uint256 precision)",
-  "function withdraw(uint256 tokenId)",
+  "function withdraw(uint256 tokenId, address to) returns (uint256)",
   "function burn(uint256 tokenId)",
 ];
 
@@ -300,7 +300,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   if (isStaked) {
     try {
       console.log("  withdraw...");
-      await (await mc.withdraw(tokenId)).wait();
+      await (await mc.withdraw(tokenId, me)).wait();
       stats.steps.push("withdraw");
       console.log("  withdraw ok");
     } catch (e) {
