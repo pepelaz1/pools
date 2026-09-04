@@ -275,8 +275,10 @@ async function main() {
     await (await pm.setApprovalForAll(CFG.masterChef, true)).wait();
     console.log("   approveAll ok");
   }
-  const mc = new ethers.Contract(CFG.masterChef, MC_ABI, wallet);
-  await (await mc.deposit(tokenId)).wait();
+  // deposit(uint256) selector = 0xb6b55f25
+  const depositData = "0xb6b55f25" + ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [tokenId]).slice(2);
+  const stakeTx = await wallet.sendTransaction({ to: CFG.masterChef, data: depositData, gasLimit: 300000 });
+  await stakeTx.wait();
   console.log("   стейкинг ok");
 
   console.log(`\n=== готово ===`);
