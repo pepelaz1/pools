@@ -108,6 +108,7 @@ async function main() {
   const usdtIs0 = CFG.usdt.toLowerCase() === t0.toLowerCase();
 
   const amountIn = ethers.parseUnits(amountUsd.toString(), 18);
+  const halfAmount = amountIn / 2n;
 
   // проверки балансов
   const usdtC = new ethers.Contract(CFG.usdt, ERC20_ABI, wallet);
@@ -136,12 +137,12 @@ async function main() {
   const quoteRes = await quoter.quoteExactInputSingle.staticCall({
     tokenIn: CFG.usdt,
     tokenOut: CFG.wbnb,
-    amountIn,
+    amountIn: halfAmount,
     fee: CFG.fee,
     sqrtPriceLimitX96: 0,
   });
   const wbnbExpected = quoteRes.amountOut;
-  console.log(`\nкотировка: ${ethers.formatUnits(amountIn, 18)} USDT -> ${ethers.formatUnits(wbnbExpected, 18)} WBNB`);
+  console.log(`\nкотировка: ${ethers.formatUnits(halfAmount, 18)} USDT -> ${ethers.formatUnits(wbnbExpected, 18)} WBNB`);
 
   // pool check
   const f = new ethers.Contract(CFG.factory, FACTORY_ABI, provider);
@@ -183,7 +184,7 @@ async function main() {
     console.log("   approve ok");
   }
 
-  // 2. swap USDT -> WBNB (через fee=500 пул)
+  // 2. swap half USDT -> WBNB (через fee=500 пул)
   console.log("2. свап USDT -> WBNB...");
   const wbnbBefore = await wbnbC.balanceOf(wallet.address);
   const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
@@ -192,7 +193,7 @@ async function main() {
     tokenOut: CFG.wbnb,
     fee: 500,
     recipient: wallet.address,
-    amountIn,
+    amountIn: halfAmount,
     amountOutMinimum: 0,
     sqrtPriceLimitX96: 0,
   })).wait();
@@ -202,9 +203,10 @@ async function main() {
 
   // 3. mint position
   console.log("3. создаю позицию...");
+  const usdtLeft = amountIn - halfAmount;
 
-  const amount0Desired = usdtIs0 ? 0n : wbnbReceived;
-  const amount1Desired = usdtIs0 ? wbnbReceived : 0n;
+  const amount0Desired = usdtIs0 ? usdtLeft : wbnbReceived;
+  const amount1Desired = usdtIs0 ? wbnbReceived : usdtLeft;
   console.log(`   amount0: ${ethers.formatUnits(amount0Desired, 18)}, amount1: ${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
