@@ -5,6 +5,7 @@ const { ethers } = require("ethers");
 const { promptHidden } = require("./lib");
 
 const KEYSTORE = path.join(__dirname, "wallets.json");
+const POSITIONS = path.join(__dirname, "positions.json");
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
@@ -98,6 +99,23 @@ function parseArgs() {
   const tickUpper = priceToTick(1 / priceFrom);
 
   return { tickLower, tickUpper, amountUsd, priceFrom, priceTo };
+}
+
+function savePosition(address, tokenId) {
+  let data = { toAddress: address, positions: [] };
+  if (fs.existsSync(POSITIONS)) {
+    const raw = JSON.parse(fs.readFileSync(POSITIONS, "utf8"));
+    data = Array.isArray(raw) ? { toAddress: address, positions: raw } : raw;
+  }
+
+  if (!Array.isArray(data.positions)) data.positions = [];
+  if (!data.positions.some((item) => String(item.tokenId) === String(tokenId))) {
+    data.positions.push({ address, tokenId: Number(tokenId) });
+  }
+
+  const temporaryPath = `${POSITIONS}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(temporaryPath, POSITIONS);
 }
 
 let wallet;
@@ -318,10 +336,11 @@ async function main() {
   await (await pm.safeTransferFrom(wallet.address, CFG.masterChef, tokenId)).wait();
   console.log("   стейкинг ok");
 
+  savePosition(wallet.address, tokenId);
+  console.log("   позиция сохранена в positions.json");
+
   console.log(`\n=== готово ===`);
   console.log(`tokenId: ${tokenId}`);
-  console.log(`добавьте в positions.json:`);
-  console.log(JSON.stringify({ address: wallet.address, tokenId: Number(tokenId) }, null, 2));
 }
 
 main().catch((e) => { console.error("ошибка:", e.shortMessage || e.message); process.exit(1); });

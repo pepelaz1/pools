@@ -7,6 +7,15 @@ const { closePosition, RPC, prompt, promptHidden } = require("./lib");
 const KEYSTORE = path.join(__dirname, "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
 
+function removePosition(raw, tokenId) {
+  const data = Array.isArray(raw) ? { positions: raw } : raw;
+  data.positions = (data.positions || []).filter((item) => String(item.tokenId) !== String(tokenId));
+
+  const temporaryPath = `${POSITIONS}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(temporaryPath, POSITIONS);
+}
+
 async function main() {
   const tokenIdArg = process.argv[2];
   if (!tokenIdArg) {
@@ -67,6 +76,8 @@ async function main() {
     if (stats.status === "skip") {
       console.log(`пропуск: ${stats.reason}`);
     } else {
+      removePosition(raw, item.tokenId);
+      console.log("позиция удалена из positions.json");
       console.log(`готово. шаги: ${stats.steps.join(", ")}`);
       console.log(`usdt сейчас: ${ethers.formatUnits(stats.usdtReceived, 18)}`);
       if (stats.cakeReceived) {
