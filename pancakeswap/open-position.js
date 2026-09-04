@@ -108,7 +108,6 @@ async function main() {
   const usdtIs0 = CFG.usdt.toLowerCase() === t0.toLowerCase();
 
   const amountIn = ethers.parseUnits(amountUsd.toString(), 18);
-  const halfAmount = amountIn / 2n;
 
   // проверки балансов
   const usdtC = new ethers.Contract(CFG.usdt, ERC20_ABI, wallet);
@@ -137,12 +136,12 @@ async function main() {
   const quoteRes = await quoter.quoteExactInputSingle.staticCall({
     tokenIn: CFG.usdt,
     tokenOut: CFG.wbnb,
-    amountIn: halfAmount,
+    amountIn,
     fee: CFG.fee,
     sqrtPriceLimitX96: 0,
   });
   const wbnbExpected = quoteRes.amountOut;
-  console.log(`\nкотировка: ${ethers.formatUnits(halfAmount, 18)} USDT -> ${ethers.formatUnits(wbnbExpected, 18)} WBNB`);
+  console.log(`\nкотировка: ${ethers.formatUnits(amountIn, 18)} USDT -> ${ethers.formatUnits(wbnbExpected, 18)} WBNB`);
 
   // pool check
   const f = new ethers.Contract(CFG.factory, FACTORY_ABI, provider);
@@ -184,7 +183,7 @@ async function main() {
     console.log("   approve ok");
   }
 
-  // 2. swap half USDT -> WBNB (через fee=500 пул)
+  // 2. swap USDT -> WBNB (через fee=500 пул)
   console.log("2. свап USDT -> WBNB...");
   const wbnbBefore = await wbnbC.balanceOf(wallet.address);
   const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
@@ -193,7 +192,7 @@ async function main() {
     tokenOut: CFG.wbnb,
     fee: 500,
     recipient: wallet.address,
-    amountIn: halfAmount,
+    amountIn,
     amountOutMinimum: 0,
     sqrtPriceLimitX96: 0,
   })).wait();
@@ -203,36 +202,9 @@ async function main() {
 
   // 3. mint position
   console.log("3. создаю позицию...");
-  const usdtLeft = amountIn - halfAmount;
+  const usdtLeft = 0n;
 
-  // Рассчитываем пропорции по текущей цене пула
-  // pool sqrtPriceX96 = sqrt(price * 2^192), price = token1/token0
-  const sqrtPrice = slot0.sqrtPriceX96;
-  const Q96 = 2n ** 96n;
-
-  let amount0Desired, amount1Desired;
-  if (usdtIs0) {
-    // token0 = USDT, token1 = WBNB
-    const priceNum = sqrtPrice * sqrtPrice;
-    const priceDen = Q96 * Q96;
-    amount0Desired = usdtLeft;
-    amount1Desired = (usdtLeft * priceNum) / priceDen;
-    if (amount1Desired > wbnbReceived) {
-      amount1Desired = wbnbReceived;
-      amount0Desired = (wbnbReceived * priceDen) / priceNum;
-    }
-  } else {
-    // token0 = WBNB, token1 = USDT
-    const priceNum = sqrtPrice * sqrtPrice;
-    const priceDen = Q96 * Q96;
-    amount1Desired = usdtLeft;
-    amount0Desired = (usdtLeft * priceDen) / priceNum;
-    if (amount0Desired > wbnbReceived) {
-      amount0Desired = wbnbReceived;
-      amount1Desired = (wbnbReceived * priceNum) / priceDen;
-    }
-  }
-  console.log(`   USDT: ${ethers.formatUnits(amount0Desired, 18)}, WBNB: ${ethers.formatUnits(amount1Desired, 18)}`);
+  console.log(`   WBNB: ${ethers.formatUnits(wbnbReceived, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
   const deadline = Math.floor(Date.now() / 1000) + 1800;
