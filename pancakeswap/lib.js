@@ -345,7 +345,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
       stats.steps.push("collectWithdrawn");
       console.log("  токены забраны");
     } catch (e) {
-      console.log(`  decrease/collect ошибка: ${e.shortMessage || e.message}`);
+      console.log(`  ошибка: ${e.shortMessage || e.message}`);
       throw e;
     }
   }
