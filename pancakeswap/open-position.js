@@ -16,7 +16,7 @@ const CFG = TESTNET
       positionManager: "0x427bF5b37357632377eCbEC9de3626C71A5396c1",
       masterChef: "0x4c650FB471fe4e0f476fD3437C3411B1122c4e3B",
       factory: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
-      usdt: "0x66E972502A34A625828C544a1914E8D8cc2A9dE5",
+      usdt: "0xd308dd50e00dafe6a6a77dd7c3e79c17f37de1ee",
       wbnb: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
       usdtDec: 18,
       wbnbDec: 18,
@@ -182,12 +182,12 @@ async function main() {
 
   // 4. check/create pool
   console.log("3. проверяю пул...");
-  const state = await getPoolState(CFG.factory, t0, t1, 500);
+  const state = await getPoolState(CFG.factory, t0, t1, 2500);
   if (!state) {
     console.log("   пул не найден, создаю...");
     const sqrtPrice = ethers.parseUnits("79228162514264337593543950336", 0);
     const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
-    await (await pm.createAndInitializePoolIfNecessary(t0, t1, 500, sqrtPrice)).wait();
+    await (await pm.createAndInitializePoolIfNecessary(t0, t1, 2500, sqrtPrice)).wait();
     console.log("   пул создан");
   } else {
     console.log(`   пул найден, tick=${state.tick}`);
@@ -199,7 +199,7 @@ async function main() {
   const mintParams = {
     token0: t0,
     token1: t1,
-    fee: 500,
+    fee: 2500,
     tickLower,
     tickUpper,
     amount0Desired,

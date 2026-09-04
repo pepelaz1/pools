@@ -8,7 +8,7 @@ const RPC = "https://data-seed-prebsc-1-s1.binance.org:8545";
 const CHAIN_ID = 97;
 const ROUTER = "0x1b81D678ffb9C0263b24A97847620C99d213eB14";
 const WBNB = "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd";
-const USDT = "0x66E972502A34A625828C544a1914E8D8cc2A9dE5";
+const USDT = "0xd308dd50e00dafe6a6a77dd7c3e79c17f37de1ee";
 
 const ROUTER_ABI = [
   "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) external payable returns (uint256 amountOut)",
@@ -42,8 +42,8 @@ async function main() {
   const router = new ethers.Contract(ROUTER, ROUTER_ABI, provider);
   const factoryAddr = await router.factory();
   const fc = new ethers.Contract(factoryAddr, FACTORY_ABI, provider);
-  const pool = await fc.getPool(WBNB, USDT, 500);
-  console.log(`пул WBNB/USDT (500): ${pool === ethers.ZeroAddress ? "нет" : pool}`);
+  const pool = await fc.getPool(WBNB, USDT, 2500);
+  console.log(`пул WBNB/USDT (2500): ${pool === ethers.ZeroAddress ? "нет" : pool}`);
 
   if (pool === ethers.ZeroAddress) {
     console.log("пул не найден, попробуйте другой fee tier");
@@ -54,7 +54,7 @@ async function main() {
   const tx = await router.exactInputSingle({
     tokenIn: WBNB,
     tokenOut: USDT,
-    fee: 500,
+    fee: 2500,
     recipient: wallet.address,
     amountIn: swapAmount,
     amountOutMinimum: 0,
