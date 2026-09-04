@@ -49,10 +49,11 @@ const server = http.createServer(async (req, res) => {
         Promise.all(items.map((it) => readPosition(it))),
         getPrices(),
       ]);
-      data.sort((a, b) => b.valueUsd - a.valueUsd);
-      data.forEach(enrich);
+      const filtered = data.filter(Boolean);
+      filtered.sort((a, b) => b.valueUsd - a.valueUsd);
+      filtered.forEach(enrich);
       saveSnapshot();
-      sendJson(res, 200, { positions: data, prices, updated: new Date().toISOString() });
+      sendJson(res, 200, { positions: filtered, prices, updated: new Date().toISOString() });
     } catch (e) {
       sendJson(res, 500, { error: e.shortMessage || e.message });
     }
@@ -67,7 +68,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     try {
-      const data = enrich(await readPosition(item));
+      const data = await readPosition(item);
+      if (!data) { sendJson(res, 404, { error: "position closed" }); return; }
+      enrich(data);
       saveSnapshot();
       sendJson(res, 200, { position: data, updated: new Date().toISOString() });
     } catch (e) {

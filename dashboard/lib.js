@@ -161,6 +161,8 @@ async function readPosition(item) {
   const pm = new ethers.Contract(c.nfpm, POSITIONS_ABI, p);
   const pos = await pm.positions(tokenId);
 
+  if (pos.liquidity === 0n) return null;
+
   const t0c = new ethers.Contract(pos.token0, ERC20_ABI, p);
   const t1c = new ethers.Contract(pos.token1, ERC20_ABI, p);
   const [sym0, sym1, dec0Raw, dec1Raw] = await Promise.all([
