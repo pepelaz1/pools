@@ -55,7 +55,7 @@ const POOL_ABI = [
 ];
 
 const MC_ABI = [
-  "function mint(uint256 tokenId) external",
+  "function deposit(uint256 tokenId) external",
 ];
 
 function priceToTick(price) {
@@ -276,7 +276,7 @@ async function main() {
     console.log("   approveAll ok");
   }
   const mc = new ethers.Contract(CFG.masterChef, MC_ABI, wallet);
-  await (await mc.mint(tokenId)).wait();
+  await (await mc.deposit(tokenId)).wait();
   console.log("   стейкинг ok");
 
   console.log(`\n=== готово ===`);
