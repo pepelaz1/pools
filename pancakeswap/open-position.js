@@ -202,9 +202,10 @@ async function main() {
 
   // 3. mint position
   console.log("3. создаю позицию...");
-  const usdtLeft = 0n;
 
-  console.log(`   WBNB: ${ethers.formatUnits(wbnbReceived, 18)}`);
+  const amount0Desired = usdtIs0 ? 0n : wbnbReceived;
+  const amount1Desired = usdtIs0 ? wbnbReceived : 0n;
+  console.log(`   amount0: ${ethers.formatUnits(amount0Desired, 18)}, amount1: ${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
   const deadline = Math.floor(Date.now() / 1000) + 1800;
