@@ -6,6 +6,14 @@ const { promptHidden } = require("./lib");
 
 const RPC = "https://bsc-dataseed.binance.org/";
 const MC = "0x556B9306565093C855AEA9AE92A594704c2Cd59e";
+const PM = "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364";
+
+const NFT_ABI = [
+  "function safeTransferFrom(address from, address to, uint256 tokenId)",
+  "function ownerOf(uint256) view returns (address)",
+  "function isApprovedForAll(address,address) view returns (bool)",
+  "function setApprovalForAll(address,bool)",
+];
 
 async function main() {
   const tokenId = process.argv[2];
@@ -17,13 +25,24 @@ async function main() {
   const wallet = (await ethers.Wallet.fromEncryptedJson(walletsRaw.wallets[0].keystore, password)).connect(provider);
 
   console.log(`кошелёк: ${wallet.address}`);
-  console.log(`стейкаю tokenId ${tokenId}...`);
 
-  // deposit(uint256) selector = 0xb6b55f25
-  const data = "0xb6b55f25" + ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [tokenId]).slice(2);
-  const tx = await wallet.sendTransaction({ to: MC, data, gasLimit: 300000 });
-  console.log(`tx: ${tx.hash}`);
-  await tx.wait();
+  const pm = new ethers.Contract(PM, NFT_ABI, wallet);
+
+  const owner = await pm.ownerOf(tokenId);
+  if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
+    console.log(`позиция не принадлежит кошельку! owner: ${owner}`);
+    process.exit(1);
+  }
+
+  const isApproved = await pm.isApprovedForAll(wallet.address, MC);
+  if (!isApproved) {
+    console.log("setApprovalForAll...");
+    await (await pm.setApprovalForAll(MC, true)).wait();
+    console.log("  ok");
+  }
+
+  console.log(`отправляю NFT ${tokenId} в MasterChef...`);
+  await (await pm.safeTransferFrom(wallet.address, MC, tokenId)).wait();
   console.log("стейкинг ok!");
 }
 

@@ -268,17 +268,14 @@ async function main() {
   }
   console.log(`   tokenId: ${tokenId}`);
 
-  // 4. stake
+  // 4. stake (safeTransferFrom NFT to MasterChef)
   console.log("4. стейкаю в MasterChef...");
   const isApproved = await pm.isApprovedForAll(wallet.address, CFG.masterChef);
   if (!isApproved) {
     await (await pm.setApprovalForAll(CFG.masterChef, true)).wait();
     console.log("   approveAll ok");
   }
-  // deposit(uint256) selector = 0xb6b55f25
-  const depositData = "0xb6b55f25" + ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [tokenId]).slice(2);
-  const stakeTx = await wallet.sendTransaction({ to: CFG.masterChef, data: depositData, gasLimit: 300000 });
-  await stakeTx.wait();
+  await (await pm.safeTransferFrom(wallet.address, CFG.masterChef, tokenId)).wait();
   console.log("   стейкинг ok");
 
   console.log(`\n=== готово ===`);
