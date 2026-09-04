@@ -177,14 +177,23 @@ async function main() {
   console.log(`  tick: ${slot0.tick}, liquidity: ${liq}`);
 
   const quoter = new ethers.Contract("0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997", QUOTER_ABI, provider);
+  const pmForPreview = new ethers.Contract(CFG.positionManager, PM_ABI, provider);
+  const deadline = Math.floor(Date.now() / 1000) + 1800;
 
-  // calculate correct token amounts based on current tick
+  // Find a token ratio that uses the whole USDT budget in the concentrated range.
   const currentTick = Number(slot0.tick);
 
   let usdtAmount, wbnbAmount, swapAmountIn;
 
   if (currentTick < tickLower) {
-    // price below range — position is 100% WBNB (token1)
+    // Below the range the position contains only token0 (USDT).
+    usdtAmount = amountIn;
+    swapAmountIn = 0n;
+    wbnbAmount = 0n;
+    console.log(`\nтекущий тик ${currentTick} < ${tickLower} (ниже диапазона)`);
+    console.log(`  позиция = 100% USDT`);
+  } else if (currentTick >= tickUpper) {
+    // Above the range the position contains only token1 (WBNB).
     usdtAmount = 0n;
     swapAmountIn = amountIn;
     const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
@@ -195,27 +204,44 @@ async function main() {
       sqrtPriceLimitX96: 0,
     });
     wbnbAmount = wbnbQuoteRes.amountOut;
-    console.log(`\nтекущий тик ${currentTick} < ${tickLower} (ниже диапазона)`);
-    console.log(`  позиция = 100% WBNB`);
-  } else if (currentTick >= tickUpper) {
-    // price above range — position is 100% USDT (token0)
-    usdtAmount = amountIn;
-    wbnbAmount = 0n;
-    swapAmountIn = 0n;
     console.log(`\nтекущий тик ${currentTick} >= ${tickUpper} (выше диапазона)`);
-    console.log(`  позиция = 100% USDT`);
+    console.log(`  позиция = 100% WBNB`);
   } else {
-    // price within range — use tick position
-    // fraction: 0 = at lower tick, 1 = at upper tick
-    const fraction = (currentTick - tickLower) / (tickUpper - tickLower);
+    let low = 0n;
+    let high = amountIn;
 
-    // at lower: 100% token0, at upper: 100% token1
-    const token0Fraction = 1 - fraction;
-    const token1Fraction = fraction;
+    // Use the router quote and a simulated mint to account for both price impact
+    // and the non-linear liquidity curve.
+    for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
+      const candidateSwap = (low + high) / 2n;
+      const candidateUsdt = amountIn - candidateSwap;
+      const quote = await quoter.quoteExactInputSingle.staticCall({
+        tokenIn: CFG.usdt,
+        tokenOut: CFG.wbnb,
+        amountIn: candidateSwap,
+        fee: CFG.fee,
+        sqrtPriceLimitX96: 0,
+      });
+      const preview = await pmForPreview.mint.staticCall({
+        token0: t0,
+        token1: t1,
+        fee: CFG.fee,
+        tickLower,
+        tickUpper,
+        amount0Desired: usdtIs0 ? candidateUsdt : quote.amountOut,
+        amount1Desired: usdtIs0 ? quote.amountOut : candidateUsdt,
+        amount0Min: 0,
+        amount1Min: 0,
+        recipient: wallet.address,
+        deadline,
+      });
+      const usedUsdt = usdtIs0 ? preview.amount0 : preview.amount1;
+      if (usedUsdt === candidateUsdt) high = candidateSwap;
+      else low = candidateSwap + 1n;
+    }
 
-    usdtAmount = BigInt(Math.round(Number(amountIn) * token0Fraction));
-    const wbnbValue = amountUsd * token1Fraction;
-    swapAmountIn = ethers.parseUnits(wbnbValue.toFixed(6), 18);
+    swapAmountIn = high;
+    usdtAmount = amountIn - swapAmountIn;
     const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
       tokenIn: CFG.usdt,
       tokenOut: CFG.wbnb,
@@ -226,8 +252,7 @@ async function main() {
     wbnbAmount = wbnbQuoteRes.amountOut;
 
     console.log(`\nтекущий тик ${currentTick} в диапазоне [${tickLower}, ${tickUpper}]`);
-    console.log(`  позиция в диапазоне: ${(fraction * 100).toFixed(1)}% от нижней границы`);
-    console.log(`  USDT: ${(token0Fraction * 100).toFixed(1)}%, WBNB: ${(token1Fraction * 100).toFixed(1)}%`);
+    console.log(`  подобрана пропорция для полного использования USDT`);
   }
 
   console.log(`  USDT (token0): ${ethers.formatUnits(usdtAmount, 18)}`);
@@ -290,7 +315,6 @@ async function main() {
   console.log(`   desired: amount0=${ethers.formatUnits(amount0Desired, 18)}, amount1=${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
-  const deadline = Math.floor(Date.now() / 1000) + 1800;
 
   // preview mint
   const mintParams = {
