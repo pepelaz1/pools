@@ -63,7 +63,7 @@ function priceToTick(price) {
 }
 
 function parseArgs() {
-  const args = process.argv.filter((a) => !a.startsWith("--") && a !== __filename && a !== "node");
+  const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 
   if (args.length < 3) {
     console.log("использование: node open-position.js [--dry-run] <цена от> <цена до> <сумма USDT>");
