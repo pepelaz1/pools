@@ -135,7 +135,7 @@ async function main() {
   }
 
   // котировка
-  const quoter = new ethers.Contract(CFG.swapRouter, QUOTER_ABI, provider);
+  const quoter = new ethers.Contract("0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997", QUOTER_ABI, provider);
   const quoteRes = await quoter.quoteExactInputSingle.staticCall({
     tokenIn: CFG.usdt,
     tokenOut: CFG.wbnb,
