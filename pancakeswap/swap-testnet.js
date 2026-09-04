@@ -29,9 +29,9 @@ async function main() {
   const bnbBal = await provider.getBalance(wallet.address);
   console.log(`tBNB: ${ethers.formatEther(bnbBal)}`);
 
-  // оставляем 0.05 tBNB на газ
+  // оставляем 0.05 tBNB на газ, свапаем 0.01
   const gasReserve = ethers.parseEther("0.05");
-  const swapAmount = bnbBal - gasReserve;
+  const swapAmount = ethers.parseEther("0.01");
 
   if (swapAmount <= 0n) {
     console.log("недостаточно tBNB (нужно минимум 0.05 на газ)");
