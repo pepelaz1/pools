@@ -163,14 +163,27 @@ async function main() {
     return;
   }
 
-  // 1. approve USDT
-  const currentAllowance = await usdtC.allowance(wallet.address, CFG.swapRouter);
-  if (currentAllowance < amountIn) {
-    console.log("\n1. approve USDT...");
+  // 1. approve USDT для swapRouter И positionManager
+  const currentAllowanceSwap = await usdtC.allowance(wallet.address, CFG.swapRouter);
+  if (currentAllowanceSwap < amountIn) {
+    console.log("\n1. approve USDT для swapRouter...");
     await (await usdtC.approve(CFG.swapRouter, ethers.MaxUint256)).wait();
     console.log("   approve ok");
-  } else {
-    console.log("\n1. USDT уже approved");
+  }
+
+  const currentAllowancePM = await usdtC.allowance(wallet.address, CFG.positionManager);
+  if (currentAllowancePM < amountIn) {
+    console.log("   approve USDT для positionManager...");
+    await (await usdtC.approve(CFG.positionManager, ethers.MaxUint256)).wait();
+    console.log("   approve ok");
+  }
+
+  // 1b. approve WBNB для positionManager
+  const wbnbAllowance = await wbnbC.allowance(wallet.address, CFG.positionManager);
+  if (wbnbAllowance < ethers.parseUnits("1", 18)) {
+    console.log("   approve WBNB для positionManager...");
+    await (await wbnbC.approve(CFG.positionManager, ethers.MaxUint256)).wait();
+    console.log("   approve ok");
   }
 
   // 2. swap half USDT -> WBNB (через fee=500 пул)
