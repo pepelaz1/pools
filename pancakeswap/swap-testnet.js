@@ -39,7 +39,7 @@ async function main() {
   }
 
   // проверяем пул
-  const router = new ethers.Contract(ROUTER, ROUTER_ABI, provider);
+  const router = new ethers.Contract(ROUTER, ROUTER_ABI, wallet);
   const factoryAddr = await router.factory();
   const fc = new ethers.Contract(factoryAddr, FACTORY_ABI, provider);
   const pool = await fc.getPool(WBNB, USDT, 2500);
