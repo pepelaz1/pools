@@ -64,18 +64,38 @@ const MC_ABI = [
   "function pendingCake(uint256 tokenId) view returns (uint256)",
 ];
 
+function priceToTick(price) {
+  return Math.round(Math.log(price) / Math.log(1.0001));
+}
+
 function parseArgs() {
   const args = process.argv.filter((a) => !a.startsWith("--") && a !== __filename && a !== "node");
+
   if (args.length < 3) {
-    console.log("использование: node open-position.js [--testnet] <tickLower> <tickUpper> <сумма USDT>");
-    console.log("пример: node open-position.js --testnet -65796 -65077 500");
+    console.log("использование: node open-position.js [--testnet] <цена от> <цена до> <сумма USDT>");
+    console.log("пример: node open-position.js --testnet 680 730 500");
     process.exit(1);
   }
-  return {
-    tickLower: parseInt(args[0]),
-    tickUpper: parseInt(args[1]),
-    amountUsd: parseFloat(args[2]),
-  };
+
+  const priceFrom = parseFloat(args[0]);
+  const priceTo = parseFloat(args[1]);
+  const amountUsd = parseFloat(args[2]);
+
+  if (priceFrom >= priceTo) {
+    console.log("цена 'от' должна быть меньше цены 'до'");
+    process.exit(1);
+  }
+
+  // pool price = token1/token0
+  // if USDT is token0 (lower address), pool price = WBNB/USDT = 1/bnbPrice
+  // ticks are symmetric: lower price → higher tick, higher price → lower tick
+  const tickLower = priceToTick(1 / priceTo);
+  const tickUpper = priceToTick(1 / priceFrom);
+
+  console.log(`\nцена BNB: $${priceFrom} - $${priceTo}`);
+  console.log(`тики: [${tickLower}, ${tickUpper}]`);
+
+  return { tickLower, tickUpper, amountUsd };
 }
 
 async function ensureAllowance(token, wallet, spender, amount) {
