@@ -43,6 +43,8 @@ const PM_ABI = [
   "function setApprovalForAll(address,bool) returns (bool)",
   "function isApprovedForAll(address,address) view returns (bool)",
   "function getApproved(uint256) view returns (address)",
+  "function safeTransferFrom(address,address,uint256)",
+  "function ownerOf(uint256) view returns (address)",
 ];
 
 const FACTORY_ABI = [
@@ -52,10 +54,6 @@ const FACTORY_ABI = [
 const POOL_ABI = [
   "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)",
   "function liquidity() view returns (uint128)",
-];
-
-const MC_ABI = [
-  "function deposit(uint256 tokenId) external",
 ];
 
 function priceToTick(price) {
