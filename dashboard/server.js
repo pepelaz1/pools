@@ -7,9 +7,6 @@ const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
 const SNAPSHOT_FILE = path.join(__dirname, "snapshot.json");
 
-const items = collectItems();
-const byId = new Map(items.map((it) => [it.id, it]));
-
 let snapshot = {};
 if (fs.existsSync(SNAPSHOT_FILE)) {
   try {
@@ -45,6 +42,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/positions") {
     try {
+      const items = collectItems();
       const [data, prices] = await Promise.all([
         Promise.all(items.map((it) => readPosition(it))),
         getPrices(),
@@ -62,7 +60,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname.startsWith("/api/positions/")) {
     const id = decodeURIComponent(url.pathname.slice("/api/positions/".length));
-    const item = byId.get(id);
+    const item = collectItems().find((candidate) => candidate.id === id);
     if (!item) {
       sendJson(res, 404, { error: "not found" });
       return;
@@ -97,5 +95,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Dashboard: http://localhost:${PORT}  (${items.length} позиций)`);
+  console.log(`Dashboard: http://localhost:${PORT}  (${collectItems().length} позиций)`);
 });

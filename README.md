@@ -24,6 +24,8 @@ crypto/
 ├── pancakeswap/      # сборщик для PancakeSwap V3 (BSC)
 │   ├── setup.js
 │   ├── collect-all.js
+│   ├── open-position.js   # создаёт и стейкает LP-позицию
+│   ├── close-position.js  # закрывает LP-позицию
 │   └── lib.js
 └── dashboard/        # HTML-дашборд по всем пулам
 ```
@@ -36,6 +38,20 @@ npm install         # один раз
 node setup.js       # ввести мастер-пароль и приватные ключи
 # отредактировать positions.json (tokenId, toAddress)
 node collect-all.js # ежедневный запуск
+```
+
+Для PancakeSwap новую позицию можно проверить и открыть так:
+
+```powershell
+node open-position.js --dry-run 680 730 500
+node open-position.js 680 730 500
+```
+
+После успешного открытия `tokenId` автоматически добавляется в `pancakeswap/positions.json`.
+Закрытие позиции также автоматически удаляет запись:
+
+```powershell
+node close-position.js <tokenId>
 ```
 
 ## Безопасность
@@ -66,4 +82,3 @@ node server.js     # или npm start
 ```
 
 Дашборд работает только на чтение (ключи не нужны): комиссии берутся через симуляцию `collect` от имени владельца. Есть кнопка «Обновить всё» и кнопка обновления у каждой позиции.
-
