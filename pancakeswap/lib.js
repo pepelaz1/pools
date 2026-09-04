@@ -300,7 +300,10 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
   if (isStaked) {
     try {
       console.log("  withdraw...");
-      await (await mc.withdraw(tokenId, me)).wait();
+      const estimatedGas = await mc.withdraw.estimateGas(tokenId, me);
+      // BSC public RPC can underestimate this MasterChef call by a small margin.
+      const gasLimit = (estimatedGas * 120n) / 100n;
+      await (await mc.withdraw(tokenId, me, { gasLimit })).wait();
       stats.steps.push("withdraw");
       console.log("  withdraw ok");
     } catch (e) {
