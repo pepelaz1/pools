@@ -27,6 +27,7 @@ const ERC20_ABI = [
 const PM_ABI = [
   "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
+  "function decreaseLiquidity(tuple(uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint256 amount0, uint256 amount1)",
   "function burn(uint256 tokenId)",
   "function ownerOf(uint256 tokenId) view returns (address)",
 ];
@@ -308,7 +309,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     }
   }
 
-  // 2. collect all tokens (fees + withdrawn liquidity) from PM
+  // 2. collect fees from PM
   const collectParams = {
     tokenId,
     recipient: me,
@@ -325,7 +326,31 @@ async function closePosition(wallet, tokenId, { slippageBps = 100 } = {}) {
     throw e;
   }
 
-  // 3. swap WBNB + CAKE to USDT
+  // 3. decreaseLiquidity + collect withdrawn tokens
+  if (liquidity > 0n) {
+    try {
+      console.log("  decreaseLiquidity...");
+      await (await pm.decreaseLiquidity({
+        tokenId,
+        liquidity,
+        amount0Min: 0,
+        amount1Min: 0,
+        deadline: Math.floor(Date.now() / 1000) + 1800,
+      })).wait();
+      stats.steps.push("decreaseLiquidity");
+      console.log("  decreaseLiquidity ok");
+
+      console.log("  collect withdrawn...");
+      await (await pm.collect(collectParams)).wait();
+      stats.steps.push("collectWithdrawn");
+      console.log("  collect withdrawn ok");
+    } catch (e) {
+      console.log(`  decrease/collect ошибка: ${e.shortMessage || e.message}`);
+      throw e;
+    }
+  }
+
+  // 4. swap WBNB + CAKE to USDT
   const wbnb0 = await wbnbC.balanceOf(me);
   const cake0 = await cakeC.balanceOf(me);
 
