@@ -207,11 +207,13 @@ async function main() {
 
   const amount0Desired = usdtIs0 ? usdtLeft : wbnbReceived;
   const amount1Desired = usdtIs0 ? wbnbReceived : usdtLeft;
-  console.log(`   amount0: ${ethers.formatUnits(amount0Desired, 18)}, amount1: ${ethers.formatUnits(amount1Desired, 18)}`);
+  console.log(`   desired: amount0=${ethers.formatUnits(amount0Desired, 18)}, amount1=${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
   const deadline = Math.floor(Date.now() / 1000) + 1800;
-  const mintTx = await pm.mint({
+
+  // preview mint
+  const mintParams = {
     token0: t0,
     token1: t1,
     fee: CFG.fee,
@@ -223,7 +225,11 @@ async function main() {
     amount1Min: 0,
     recipient: wallet.address,
     deadline,
-  });
+  };
+  const preview = await pm.mint.staticCall(mintParams);
+  console.log(`   actual: amount0=${ethers.formatUnits(preview.amount0, 18)}, amount1=${ethers.formatUnits(preview.amount1, 18)}`);
+
+  const mintTx = await pm.mint(mintParams);
   const mintReceipt = await mintTx.wait();
 
   let tokenId = null;
