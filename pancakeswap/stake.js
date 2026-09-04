@@ -6,9 +6,6 @@ const { promptHidden } = require("./lib");
 
 const RPC = "https://bsc-dataseed.binance.org/";
 const MC = "0x556B9306565093C855AEA9AE92A594704c2Cd59e";
-const MC_ABI = [
-  "function deposit(uint256 tokenId) external",
-];
 
 async function main() {
   const tokenId = process.argv[2];
@@ -22,8 +19,11 @@ async function main() {
   console.log(`кошелёк: ${wallet.address}`);
   console.log(`стейкаю tokenId ${tokenId}...`);
 
-  const mc = new ethers.Contract(MC, MC_ABI, wallet);
-  await (await mc.deposit(tokenId)).wait();
+  // deposit(uint256) selector = 0xb6b55f25
+  const data = "0xb6b55f25" + ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [tokenId]).slice(2);
+  const tx = await wallet.sendTransaction({ to: MC, data, gasLimit: 300000 });
+  console.log(`tx: ${tx.hash}`);
+  await tx.wait();
   console.log("стейкинг ok!");
 }
 
