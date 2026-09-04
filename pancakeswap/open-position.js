@@ -193,14 +193,36 @@ async function main() {
   // 3. mint position
   console.log("3. создаю позицию...");
   const usdtLeft = amountIn - halfAmount;
+
+  // Рассчитываем пропорции по текущей цене пула
+  // pool sqrtPriceX96 = sqrt(price * 2^192), price = token1/token0
+  const sqrtPrice = slot0.sqrtPriceX96;
+  const Q96 = 2n ** 96n;
+
   let amount0Desired, amount1Desired;
   if (usdtIs0) {
+    // price = WBNB/USDT = (sqrtPrice/2^96)^2
+    // amount1 (WBNB) = amount0 (USDT) * price
+    const priceNum = sqrtPrice * sqrtPrice;
+    const priceDen = Q96 * Q96;
     amount0Desired = usdtLeft;
-    amount1Desired = wbnbReceived;
+    amount1Desired = (usdtLeft * priceNum) / priceDen;
+    if (amount1Desired > wbnbReceived) {
+      // Ограничиваем по WBNB
+      amount1Desired = wbnbReceived;
+      amount0Desired = (wbnbReceived * priceDen) / priceNum;
+    }
   } else {
-    amount0Desired = wbnbReceived;
+    const priceNum = sqrtPrice * sqrtPrice;
+    const priceDen = Q96 * Q96;
     amount1Desired = usdtLeft;
+    amount0Desired = (usdtLeft * priceDen) / priceNum;
+    if (amount0Desired > wbnbReceived) {
+      amount0Desired = wbnbReceived;
+      amount1Desired = (wbnbReceived * priceNum) / priceDen;
+    }
   }
+  console.log(`   USDT: ${ethers.formatUnits(amount0Desired, 18)}, WBNB: ${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
   const deadline = Math.floor(Date.now() / 1000) + 1800;
