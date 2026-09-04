@@ -11,7 +11,7 @@ const DRY_RUN = process.argv.includes("--dry-run");
 const CFG = {
   rpc: "https://bsc-dataseed.binance.org/",
   chainId: 56,
-  swapRouter: "0x1b81D678ffb9C0263b24A97847620C99d213eB14",
+  swapRouter: "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4",
   positionManager: "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364",
   masterChef: "0x556B9306565093C855AEA9AE92A594704c2Cd59e",
   factory: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
