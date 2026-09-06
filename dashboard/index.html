@@ -41,10 +41,12 @@
   .range-labels { display:flex; justify-content:space-between; font-size:10px; color:#6b7280; }
   .rangebar { position:relative; height:5px; background:#e1e4e8; border-radius:4px; margin:5px 0 10px; }
   .rangebar-fill { position:absolute; top:0; bottom:0; background:#1a7f37; border-radius:4px; }
+  .rangebar-fill.out { background:#bc4c00; }
   .rangebar-dot { position:absolute; top:-2px; width:10px; height:10px; border-radius:50%; background:#1f2328; transform:translateX(-5px); }
   .rows { border-top:1px solid #e1e4e8; margin-top:2px; }
   .row { display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:12px; border-bottom:1px solid #f0f1f2; }
   .row span { color:#6b7280; }
+  .fee-row { gap:6px; font-size:11px; white-space:nowrap; }
   .value { margin-top:10px; font-size:16px; font-weight:700; }
   .dim { color:#6b7280; font-size:11px; font-weight:400; }
   .good { color:#1a7f37; }
@@ -78,7 +80,7 @@
 <script>
 function fmt(n, dec, max) {
   if (!isFinite(n)) return "—";
-  return n.toFixed(Math.min(dec || 18, max == null ? 6 : max)).replace(/\.?0+$/, "") || "0";
+  return n.toFixed(Math.min(dec || 18, max == null ? 4 : max)).replace(/\.?0+$/, "") || "0";
 }
 function fmtUsd(n) {
   if (!isFinite(n)) return "—";
@@ -95,18 +97,24 @@ function renderCard(r) {
     ? `<div class="row"><span>Награды CAKE</span><b>${fmt(r.cake.amount, 18, 4)} CAKE · ${fmtUsd(r.cake.usd)}</b></div>`
     : "";
   const stable = r.chain === "bsc" ? "USDT" : "USDC";
+  const rangeDirection = r.rangeDirection || (r.inRange ? "in" : "out");
+  const rangeLabel = rangeDirection === "above"
+    ? "выше диапазона"
+    : rangeDirection === "below"
+      ? "ниже диапазона"
+      : r.inRange ? "в диапазоне" : "вне диапазона";
   return `
   <div class="card ${r.inRange ? "" : "out"}" id="card-${r.id}">
     <div class="card-head">
-      <div>${badge(r.dex, dexColor)} ${badge(r.chainLabel, chainColor)} <span class="pair">${r.sym0}/${r.sym1}</span> <span class="fee">${(r.fee / 10000).toFixed(2)}%</span></div>
-      <div class="range-status ${r.inRange ? "in" : "outrange"}">${r.inRange ? "в диапазоне" : "вне диапазона"}</div>
+      <div>${badge(r.dex, dexColor)} ${badge(r.chainLabel, chainColor)} <span class="pair">${r.displayPair || `${r.sym0}/${r.sym1}`}</span> <span class="fee">${(r.fee / 10000).toFixed(2)}%</span></div>
+      <div class="range-status ${r.inRange ? "in" : "outrange"}">${rangeLabel}</div>
     </div>
     <div class="sub">${r.name || ""} · ${r.address.slice(0, 6)}…${r.address.slice(-4)} · ID ${r.tokenId}</div>
-    <div class="range-labels"><span>${r.lowerPrice.toPrecision(4)}</span><span>текущ. ${r.currentPrice.toPrecision(4)}</span><span>${r.upperPrice.toPrecision(4)}</span></div>
-    <div class="rangebar"><div class="rangebar-fill" style="left:0%;width:${r.pct}%"></div><div class="rangebar-dot" style="left:${r.pct}%"></div></div>
+    <div class="range-labels"><span>${fmt(r.displayLowerPrice || r.lowerPrice, 4)}</span><span>текущ. ${fmt(r.displayCurrentPrice || r.currentPrice, 4)}</span><span>${fmt(r.displayUpperPrice || r.upperPrice, 4)}</span></div>
+    <div class="rangebar"><div class="rangebar-fill ${r.inRange ? "" : "out"}" style="left:0%;width:${r.displayPct == null ? r.pct : r.displayPct}%"></div><div class="rangebar-dot" style="left:${r.displayPct == null ? r.pct : r.displayPct}%"></div></div>
     <div class="rows">
       <div class="row"><span>Ликвидность</span><b>${fmt(r.amt0, r.dec0)} ${r.sym0} + ${fmt(r.amt1, r.dec1)} ${r.sym1}</b></div>
-      <div class="row"><span>Накоплено комиссий</span><b>${fmt(r.fee0, r.dec0, 6)} ${r.sym0} + ${fmt(r.fee1, r.dec1, 6)} ${r.sym1}</b></div>
+      <div class="row fee-row"><span>Накоплено комиссий</span><b>${fmt(r.fee0, r.dec0)} ${r.sym0} + ${fmt(r.fee1, r.dec1)} ${r.sym1} = ${fmtUsd(r.feeUsd)}</b></div>
       ${cakeRow}
     </div>
     <div class="value">${fmtUsd(r.valueUsd)} <span class="dim">(в ${stable})</span></div>

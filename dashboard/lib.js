@@ -236,6 +236,19 @@ async function readPosition(item) {
   const upperPrice = Math.pow(1.0001, Number(pos.tickUpper)) * Math.pow(10, dec0 - dec1);
   const pct = Math.max(0, Math.min(100, ((tickCurrent - Number(pos.tickLower)) / (Number(pos.tickUpper) - Number(pos.tickLower))) * 100));
 
+  // Pools are ordered by token address, so the raw price can be WBNB/USDT.
+  // Present every native/stable pair as the familiar USDT price of one native coin.
+  const nativeIs0 = pos.token0.toLowerCase() === c.native.toLowerCase();
+  const nativeIs1 = pos.token1.toLowerCase() === c.native.toLowerCase();
+  const isNativeStablePair =
+    (stableIs0 && nativeIs1) || (!stableIs0 && nativeIs0);
+  const priceIsInverted = stableIs0 && isNativeStablePair;
+  const displayLowerPrice = priceIsInverted ? 1 / upperPrice : lowerPrice;
+  const displayUpperPrice = priceIsInverted ? 1 / lowerPrice : upperPrice;
+  const displayCurrentPrice = priceIsInverted ? 1 / price : price;
+  const belowRange = displayCurrentPrice < displayLowerPrice;
+  const aboveRange = displayCurrentPrice > displayUpperPrice;
+
   return {
     id: item.id,
     dex,
@@ -253,6 +266,12 @@ async function readPosition(item) {
     lowerPrice,
     upperPrice,
     currentPrice: price,
+    displayPair: isNativeStablePair ? `${c.nativeSym}/${c.stable}` : `${sym0}/${sym1}`,
+    displayLowerPrice,
+    displayUpperPrice,
+    displayCurrentPrice,
+    displayPct: priceIsInverted ? 100 - pct : pct,
+    rangeDirection: belowRange ? "below" : aboveRange ? "above" : "in",
     stableIs0,
     amt0,
     amt1,

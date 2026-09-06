@@ -20,6 +20,8 @@ crypto/
 ├── uniswap/          # сборщик для Uniswap V3
 │   ├── setup.js      # шифрует ключи -> wallets.json, создаёт positions.json
 │   ├── collect-all.js# запускает сбор по всем позициям
+│   ├── open-position.js   # создаёт LP-позицию и записывает tokenId
+│   ├── close-position.js  # закрывает LP-позицию и удаляет tokenId
 │   └── lib.js        # общая логика
 ├── pancakeswap/      # сборщик для PancakeSwap V3 (BSC)
 │   ├── setup.js
@@ -53,6 +55,30 @@ node open-position.js 680 730 500
 ```powershell
 node close-position.js <tokenId>
 ```
+
+Для Uniswap диапазон тоже вводится как привычная цена нативного токена в USDC:
+
+```powershell
+cd uniswap
+node open-position.js --dry-run 2300 2500 500 arbitrum  # ETH: $2300-$2500
+node open-position.js 2300 2500 500 arbitrum
+node close-position.js <tokenId> arbitrum
+```
+
+Для оценки исторических комиссий в пуле Uniswap Arbitrum WETH/USDC 0.05%:
+
+```powershell
+cd uniswap
+$env:RPC_ARBITRUM = "https://ваш-архивный-rpc"  # нужен для режима по умолчанию
+node backtest-fees.js --from 2026-08-30 --to 2026-09-05 --capital 100
+```
+
+Скрипт берёт дневной минимум и максимум ETH/USDT с Binance, читает все `Swap`
+события пула и оценивает валовые комиссии позиции. Для быстрой, но грубой оценки
+без архивного RPC можно явно добавить `--liquidity current`.
+
+Для Avalanche вместо ETH указывается цена AVAX, а последним аргументом передаётся `avalanche`.
+После успешного открытия запись добавляется в `uniswap/positions.json`; после вывода ликвидности — удаляется.
 
 ## Безопасность
 

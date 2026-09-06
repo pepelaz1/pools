@@ -4,17 +4,27 @@ const MAX_UINT128 = 2n ** 128n - 1n;
 
 const CHAINS = {
   arbitrum: {
+    chainId: 42161,
     rpc: "https://arb1.arbitrum.io/rpc",
     native: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
     nativeName: "WETH",
+    stable: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    stableName: "USDC",
+    factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+    defaultFee: 500,
     positionManager: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     swapRouter: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
     quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
   },
   avalanche: {
+    chainId: 43114,
     rpc: "https://api.avax.network/ext/bc/C/rpc",
     native: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
     nativeName: "WAVAX",
+    stable: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+    stableName: "USDC",
+    factory: "0x740b1c1de25031C31FF4fC9A62f554A55cdC1baD",
+    defaultFee: 500,
     positionManager: "0x655C406EBFa14EE2006250925e54ec43AD184f8B",
     swapRouter: "0xbb00FF08d01D300023C629E8fFfFcb65A5a578cE",
     quoter: "0xbe0F5544EC67e9B3b2D979aaA43f18Fd87E6257F",
