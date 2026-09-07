@@ -7,7 +7,7 @@
 <style>
   * { box-sizing: border-box; }
   body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f6f8fa; color:#1f2328; }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  .wrap { width:66%; margin:0 auto; padding:16px 24px; }
   header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   h1 { font-size: 20px; margin: 0; }
   .muted { color:#6b7280; font-size: 12px; }
@@ -21,8 +21,14 @@
   .stat { background:#fff; border:1px solid #e1e4e8; border-radius:10px; padding:12px; }
   .stat .k { color:#6b7280; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
   .stat .v { font-size:18px; font-weight:700; margin-top:4px; }
-  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap:12px; }
-  .section { margin-top: 18px; }
+  .grid { display:grid; grid-template-columns:1fr; gap:16px; }
+  .position-columns { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; margin-top:18px; }
+  .section { min-width:0; }
+  .position-columns .card { padding:10px; }
+  .position-columns .row { gap:3px; font-size:12px; }
+  .position-columns .row b { letter-spacing:-.15px; white-space:nowrap; }
+  .position-columns .fee-row { font-size:11px; }
+  .position-columns .sub { font-size:12px; }
   .section-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
   .section-head h2 { font-size:15px; margin:0; }
   .section-head .dot { width:9px; height:9px; border-radius:50%; }
@@ -47,14 +53,20 @@
   .row { display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:12px; border-bottom:1px solid #f0f1f2; }
   .row span { color:#6b7280; }
   .fee-row { gap:6px; font-size:11px; white-space:nowrap; }
-  .value { margin-top:10px; font-size:16px; font-weight:700; }
+  .card-bottom { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; }
+  .value { font-size:16px; font-weight:700; }
   .dim { color:#6b7280; font-size:11px; font-weight:400; }
   .good { color:#1a7f37; }
   .bad { color:#cf222e; }
-  .card-foot { display:flex; justify-content:flex-end; margin-top:10px; }
+  .pnl.good { color:#1a7f37; }
+  .pnl.bad { color:#cf222e; }
+  .card-foot { display:flex; justify-content:flex-end; }
   .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:600; color:#0969da; cursor:pointer; }
   .mini-btn:hover { background:#f6f8fa; }
   .mini-btn:disabled { opacity:.6; cursor:default; }
+  @media (max-width:1000px) { .wrap { width:100%; } }
+  @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } }
+  @media (max-width:600px) { .wrap { padding:12px; } }
 </style>
 </head>
 <body>
@@ -86,6 +98,13 @@ function fmtUsd(n) {
   if (!isFinite(n)) return "—";
   return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 }
+function fmtSignedUsd(n) {
+  const value = Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 4, minimumFractionDigits: 2 });
+  return `${n >= 0 ? "+" : "-"}$${value}`;
+}
+function fmtSignedPct(n) {
+  return `${n >= 0 ? "+" : ""}${fmt(n, 4)}%`;
+}
 function badge(text, color) {
   return `<span class="badge" style="background:${color}">${text}</span>`;
 }
@@ -103,6 +122,11 @@ function renderCard(r) {
     : rangeDirection === "below"
       ? "ниже диапазона"
       : r.inRange ? "в диапазоне" : "вне диапазона";
+  const performanceRows = r.initialValueUsd != null
+    ? `
+      <div class="row"><span>Цена</span><b>${fmt(r.displayOpeningPrice, 4)} → ${fmt(r.displayCurrentPrice, 4)} (${fmtSignedPct(r.priceChangePct)})</b></div>
+      <div class="row"><span>P/L с комиссиями</span><b class="pnl ${r.pnlUsd >= 0 ? "good" : "bad"}">${fmtSignedUsd(r.pnlUsd)} (${fmtSignedPct(r.pnlPct)})</b></div>`
+    : "";
   return `
   <div class="card ${r.inRange ? "" : "out"}" id="card-${r.id}">
     <div class="card-head">
@@ -116,9 +140,12 @@ function renderCard(r) {
       <div class="row"><span>Ликвидность</span><b>${fmt(r.amt0, r.dec0)} ${r.sym0} + ${fmt(r.amt1, r.dec1)} ${r.sym1}</b></div>
       <div class="row fee-row"><span>Накоплено комиссий</span><b>${fmt(r.fee0, r.dec0)} ${r.sym0} + ${fmt(r.fee1, r.dec1)} ${r.sym1} = ${fmtUsd(r.feeUsd)}</b></div>
       ${cakeRow}
+      ${performanceRows}
     </div>
-    <div class="value">${fmtUsd(r.valueUsd)} <span class="dim">(в ${stable})</span></div>
-    <div class="card-foot"><button class="mini-btn refresh" onclick="refreshOne('${r.id}')">Обновить</button></div>
+    <div class="card-bottom">
+      <div class="value">${fmtUsd(r.valueUsd)} <span class="dim">(в ${stable})</span></div>
+      <div class="card-foot"><button class="mini-btn refresh" onclick="refreshOne('${r.id}')">Обновить</button></div>
+    </div>
   </div>`;
 }
 
@@ -158,19 +185,19 @@ function renderSection(chainLabel, chainKey, positions, price) {
 
 function renderAll(positions, prices) {
   prices = prices || {};
-  const order = [["arbitrum", "Arbitrum"], ["avalanche", "Avalanche"], ["bsc", "BSC"]];
+  const order = [["arbitrum", "Uniswap ETH/USDC"], ["avalanche", "Uniswap AVAX/USDC"], ["bsc", "PancakeSwap BNB/USDT"]];
   const groups = {};
   for (const p of positions) (groups[p.chain] = groups[p.chain] || []).push(p);
 
-  let html = "";
+  let columns = "";
   for (const [key, label] of order) {
-    if (groups[key]) html += renderSection(label, key, groups[key], prices[key]);
+    if (groups[key]) columns += renderSection(label, key, groups[key], prices[key]);
   }
   for (const key of Object.keys(groups)) {
-    if (!order.some((o) => o[0] === key)) html += renderSection(key, key, groups[key], prices[key]);
+    if (!order.some((o) => o[0] === key)) columns += renderSection(key, key, groups[key], prices[key]);
   }
 
-  document.getElementById("sections").innerHTML = html;
+  document.getElementById("sections").innerHTML = `<div class="position-columns">${columns}</div>`;
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
   document.getElementById("statFees").textContent = fmtUsd(positions.reduce((a, r) => a + r.feeUsd, 0));
   document.getElementById("statCake").textContent = fmtUsd(positions.reduce((a, r) => a + (r.cake ? r.cake.usd : 0), 0));

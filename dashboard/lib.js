@@ -128,7 +128,7 @@ function collectItems() {
   const pd = loadJson(path.join(ROOT, "uniswap/positions.json"));
   if (pd && pd.positions) {
     for (const pos of pd.positions) {
-      items.push({ dex: "uniswap", chain: pos.chain || "arbitrum", address: pos.address, tokenId: pos.tokenId });
+      items.push({ dex: "uniswap", chain: pos.chain || "arbitrum", address: pos.address, tokenId: pos.tokenId, opened: pos.opened || null });
     }
   }
 
@@ -139,7 +139,7 @@ function collectItems() {
   const pd2 = loadJson(path.join(ROOT, "pancakeswap/positions.json"));
   if (pd2 && pd2.positions) {
     for (const pos of pd2.positions) {
-      items.push({ dex: "pancakeswap", chain: "bsc", address: pos.address, tokenId: pos.tokenId });
+      items.push({ dex: "pancakeswap", chain: "bsc", address: pos.address, tokenId: pos.tokenId, opened: pos.opened || null });
     }
   }
 
@@ -154,7 +154,7 @@ function collectItems() {
 }
 
 async function readPosition(item) {
-  const { chain, dex, address, name, tokenId } = item;
+  const { chain, dex, address, name, tokenId, opened } = item;
   const c = CHAINS[chain];
   const p = provider(chain);
 
@@ -246,6 +246,15 @@ async function readPosition(item) {
   const displayLowerPrice = priceIsInverted ? 1 / upperPrice : lowerPrice;
   const displayUpperPrice = priceIsInverted ? 1 / lowerPrice : upperPrice;
   const displayCurrentPrice = priceIsInverted ? 1 / price : price;
+  const openingPrice = Number(opened?.price);
+  const initialValueUsd = Number(opened?.valueUsd);
+  const hasOpening = Number.isFinite(openingPrice) && openingPrice > 0
+    && Number.isFinite(initialValueUsd) && initialValueUsd > 0;
+  const displayOpeningPrice = hasOpening && priceIsInverted ? 1 / openingPrice : openingPrice;
+  const priceChangePct = hasOpening ? ((displayCurrentPrice / displayOpeningPrice) - 1) * 100 : null;
+  const valueWithFeesUsd = valueUsd + feeUsd;
+  const pnlUsd = hasOpening ? valueWithFeesUsd - initialValueUsd : null;
+  const pnlPct = hasOpening ? (pnlUsd / initialValueUsd) * 100 : null;
   const belowRange = displayCurrentPrice < displayLowerPrice;
   const aboveRange = displayCurrentPrice > displayUpperPrice;
 
@@ -279,6 +288,13 @@ async function readPosition(item) {
     fee1,
     valueUsd,
     feeUsd,
+    openedAt: opened?.at || null,
+    initialValueUsd: hasOpening ? initialValueUsd : null,
+    valueWithFeesUsd,
+    displayOpeningPrice: hasOpening ? displayOpeningPrice : null,
+    priceChangePct,
+    pnlUsd,
+    pnlPct,
     cake,
     pct,
   };

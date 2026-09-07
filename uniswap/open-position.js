@@ -28,6 +28,7 @@ const ROUTER_ABI = [
 ];
 const PM_ABI = [
   "function mint(tuple(address token0,address token1,uint24 fee,int24 tickLower,int24 tickUpper,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address recipient,uint256 deadline) params) returns(uint256 tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
+  "event IncreaseLiquidity(uint256 indexed tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
 ];
 
 function usage() {
@@ -65,12 +66,12 @@ function alignTicks(tickA, tickB, spacing) {
   };
 }
 
-function writePosition(address, tokenId, chain) {
+function writePosition(address, tokenId, chain, opened) {
   let data = { toAddress: address, positions: [] };
   if (fs.existsSync(POSITIONS_FILE)) data = JSON.parse(fs.readFileSync(POSITIONS_FILE, "utf8"));
   if (!Array.isArray(data.positions)) data.positions = [];
   if (!data.positions.some((item) => String(item.tokenId) === String(tokenId) && item.chain === chain)) {
-    data.positions.push({ address, tokenId: Number(tokenId), chain });
+    data.positions.push({ address, tokenId: Number(tokenId), chain, opened });
   }
   const temporary = `${POSITIONS_FILE}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`);
@@ -189,13 +190,37 @@ async function main() {
   const amount0Desired = stableIs0 ? stableToMint : nativeReceived;
   const amount1Desired = stableIs0 ? nativeReceived : stableToMint;
   const pm = new ethers.Contract(cfg.positionManager, PM_ABI, wallet);
-  const tx = await pm.mint({ token0, token1, fee: cfg.defaultFee, tickLower, tickUpper, amount0Desired, amount1Desired, amount0Min: 0, amount1Min: 0, recipient: wallet.address, deadline: Math.floor(Date.now() / 1000) + 1800 });
+  const mintParams = { token0, token1, fee: cfg.defaultFee, tickLower, tickUpper, amount0Desired, amount1Desired, amount0Min: 0, amount1Min: 0, recipient: wallet.address, deadline: Math.floor(Date.now() / 1000) + 1800 };
+  const preview = await pm.mint.staticCall(mintParams);
+  const tx = await pm.mint(mintParams);
   const receipt = await tx.wait();
   const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
   const log = receipt.logs.find((entry) => entry.address.toLowerCase() === cfg.positionManager.toLowerCase() && entry.topics[0] === transferTopic && entry.topics[1] === ethers.ZeroHash);
   if (!log) throw new Error(`позиция создана, но tokenId не найден: ${receipt.hash}`);
   const tokenId = BigInt(log.topics[3]);
-  writePosition(wallet.address, tokenId, chain);
+  const increase = receipt.logs.find((entry) => {
+    try {
+      return entry.address.toLowerCase() === cfg.positionManager.toLowerCase()
+        && pm.interface.parseLog(entry)?.name === "IncreaseLiquidity";
+    } catch {
+      return false;
+    }
+  });
+  const actual = increase ? pm.interface.parseLog(increase).args : preview;
+  const [openingSlot0, amount0Raw, amount1Raw] = await Promise.all([pool.slot0(), actual.amount0, actual.amount1]);
+  const dec0 = stableIs0 ? stableDec : nativeDec;
+  const dec1 = stableIs0 ? nativeDec : stableDec;
+  const amount0 = Number(ethers.formatUnits(amount0Raw, dec0));
+  const amount1 = Number(ethers.formatUnits(amount1Raw, dec1));
+  const openingPrice = (Number(openingSlot0.sqrtPriceX96) / 2 ** 96) ** 2 * Math.pow(10, dec0 - dec1);
+  const initialValueUsd = stableIs0 ? amount0 + amount1 / openingPrice : amount1 + amount0 * openingPrice;
+  writePosition(wallet.address, tokenId, chain, {
+    at: new Date().toISOString(),
+    price: openingPrice,
+    amount0: ethers.formatUnits(amount0Raw, dec0),
+    amount1: ethers.formatUnits(amount1Raw, dec1),
+    valueUsd: initialValueUsd,
+  });
   console.log(`готово. tokenId ${tokenId} сохранён в positions.json`);
 }
 

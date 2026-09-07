@@ -8,6 +8,8 @@ const KEYSTORE = path.join(__dirname, "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
 
 const DRY_RUN = process.argv.includes("--dry-run");
+const SLIPPAGE_BPS = Number(process.env.SLIPPAGE_BPS) || 100;
+const TX_ATTEMPTS = Math.max(1, Number(process.env.TX_ATTEMPTS) || 3);
 
 const CFG = {
   rpc: "https://bsc-dataseed.binance.org/",
@@ -45,6 +47,7 @@ const PM_ABI = [
   "function isApprovedForAll(address,address) view returns (bool)",
   "function getApproved(uint256) view returns (address)",
   "function safeTransferFrom(address,address,uint256)",
+  "event IncreaseLiquidity(uint256 indexed tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
   "function ownerOf(uint256) view returns (address)",
 ];
 
@@ -76,6 +79,48 @@ function tickToSqrtPrice(tick) {
   return BigInt(Math.round(Math.sqrt(Number(result)) * 65536));
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function swapWithRetries({ router, quoter, wallet, amountIn }) {
+  let lastError;
+  for (let attempt = 1; attempt <= TX_ATTEMPTS; attempt += 1) {
+    try {
+      const quote = await quoter.quoteExactInputSingle.staticCall({
+        tokenIn: CFG.usdt,
+        tokenOut: CFG.wbnb,
+        amountIn,
+        fee: CFG.fee,
+        sqrtPriceLimitX96: 0,
+      });
+      const params = {
+        tokenIn: CFG.usdt,
+        tokenOut: CFG.wbnb,
+        fee: CFG.fee,
+        recipient: wallet.address,
+        amountIn,
+        amountOutMinimum: quote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n,
+        sqrtPriceLimitX96: 0,
+      };
+      // A failed simulation spends no gas and avoids broadcasting a known-bad swap.
+      await router.exactInputSingle.staticCall(params);
+      const estimatedGas = await router.exactInputSingle.estimateGas(params);
+      const tx = await router.exactInputSingle(params, { gasLimit: estimatedGas * 120n / 100n });
+      console.log(`   tx: ${tx.hash}`);
+      await tx.wait();
+      return;
+    } catch (error) {
+      lastError = error;
+      const retryable = error.code === "CALL_EXCEPTION" || /transaction execution reverted/i.test(error.message || "");
+      if (!retryable || attempt === TX_ATTEMPTS) throw error;
+      console.log(`   попытка ${attempt}/${TX_ATTEMPTS} откатилась; повторяю через ${attempt * 2} с...`);
+      await sleep(attempt * 2_000);
+    }
+  }
+  throw lastError;
+}
+
 function parseArgs() {
   const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 
@@ -101,7 +146,7 @@ function parseArgs() {
   return { tickLower, tickUpper, amountUsd, priceFrom, priceTo };
 }
 
-function savePosition(address, tokenId) {
+function savePosition(address, tokenId, opened) {
   let data = { toAddress: address, positions: [] };
   if (fs.existsSync(POSITIONS)) {
     const raw = JSON.parse(fs.readFileSync(POSITIONS, "utf8"));
@@ -110,7 +155,7 @@ function savePosition(address, tokenId) {
 
   if (!Array.isArray(data.positions)) data.positions = [];
   if (!data.positions.some((item) => String(item.tokenId) === String(tokenId))) {
-    data.positions.push({ address, tokenId: Number(tokenId) });
+    data.positions.push({ address, tokenId: Number(tokenId), opened });
   }
 
   const temporaryPath = `${POSITIONS}.tmp`;
@@ -286,15 +331,7 @@ async function main() {
     console.log("\n2. свап USDT -> WBNB...");
     const wbnbBefore = await wbnbC.balanceOf(wallet.address);
     const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
-    await (await router.exactInputSingle({
-      tokenIn: CFG.usdt,
-      tokenOut: CFG.wbnb,
-      fee: CFG.fee,
-      recipient: wallet.address,
-      amountIn: swapAmountIn,
-      amountOutMinimum: 0,
-      sqrtPriceLimitX96: 0,
-    })).wait();
+    await swapWithRetries({ router, quoter, wallet, amountIn: swapAmountIn });
     const wbnbAfter = await wbnbC.balanceOf(wallet.address);
     wbnbReceived = wbnbAfter - wbnbBefore;
     console.log(`   получено: ${ethers.formatUnits(wbnbReceived, 18)} WBNB`);
@@ -345,6 +382,28 @@ async function main() {
   }
   console.log(`   tokenId: ${tokenId}`);
 
+  const increase = mintReceipt.logs.find((log) => {
+    try {
+      return log.address.toLowerCase() === CFG.positionManager.toLowerCase()
+        && pm.interface.parseLog(log)?.name === "IncreaseLiquidity";
+    } catch {
+      return false;
+    }
+  });
+  const actual = increase ? pm.interface.parseLog(increase).args : preview;
+  const openingSlot0 = await pool.slot0();
+  const amount0 = Number(ethers.formatUnits(actual.amount0, 18));
+  const amount1 = Number(ethers.formatUnits(actual.amount1, 18));
+  const openingPrice = (Number(openingSlot0.sqrtPriceX96) / 2 ** 96) ** 2;
+  const initialValueUsd = usdtIs0 ? amount0 + amount1 / openingPrice : amount1 + amount0 * openingPrice;
+  const opened = {
+    at: new Date().toISOString(),
+    price: openingPrice,
+    amount0: ethers.formatUnits(actual.amount0, 18),
+    amount1: ethers.formatUnits(actual.amount1, 18),
+    valueUsd: initialValueUsd,
+  };
+
   // 4. stake (safeTransferFrom NFT to MasterChef)
   console.log("4. стейкаю в MasterChef...");
   const isApproved = await pm.isApprovedForAll(wallet.address, CFG.masterChef);
@@ -355,7 +414,7 @@ async function main() {
   await (await pm.safeTransferFrom(wallet.address, CFG.masterChef, tokenId)).wait();
   console.log("   стейкинг ok");
 
-  savePosition(wallet.address, tokenId);
+  savePosition(wallet.address, tokenId, opened);
   console.log("   позиция сохранена в positions.json");
 
   console.log(`\n=== готово ===`);
