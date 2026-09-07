@@ -124,6 +124,7 @@ function renderCard(r) {
       : r.inRange ? "в диапазоне" : "вне диапазона";
   const performanceRows = r.initialValueUsd != null
     ? `
+      <div class="row"><span>Внесено при открытии</span><b>${fmtUsd(r.initialValueUsd)}</b></div>
       <div class="row"><span>Цена</span><b>${fmt(r.displayOpeningPrice, 4)} → ${fmt(r.displayCurrentPrice, 4)} (${fmtSignedPct(r.priceChangePct)})</b></div>
       <div class="row"><span>P/L с комиссиями</span><b class="pnl ${r.pnlUsd >= 0 ? "good" : "bad"}">${fmtSignedUsd(r.pnlUsd)} (${fmtSignedPct(r.pnlPct)})</b></div>`
     : "";
