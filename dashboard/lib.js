@@ -55,6 +55,7 @@ const POOL_ABI = [
 const ERC20_ABI = [
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
 ];
 
 const FACTORY_ABI = ["function getPool(address,address,uint24) view returns (address)"];
@@ -151,6 +152,49 @@ function collectItems() {
     result.push(it);
   }
   return result;
+}
+
+function collectWallets() {
+  const wallets = new Map();
+  for (const file of ["uniswap/wallets.json", "pancakeswap/wallets.json"]) {
+    const data = loadJson(path.join(ROOT, file));
+    for (const item of data?.wallets || []) {
+      if (!item.address) continue;
+      const key = item.address.toLowerCase();
+      wallets.set(key, { address: item.address, name: item.name || "" });
+    }
+  }
+  return [...wallets.values()];
+}
+
+async function getWalletBalances() {
+  const wallets = collectWallets();
+  const entries = await Promise.all(Object.entries(CHAINS).map(async ([chain, c]) => {
+    try {
+      const token = new ethers.Contract(c.stableToken, ERC20_ABI, provider(chain));
+      const decimals = Number(await token.decimals());
+      const balances = await Promise.all(wallets.map(async (wallet) => ({
+        ...wallet,
+        amount: Number(ethers.formatUnits(await token.balanceOf(wallet.address), decimals)),
+      })));
+      return {
+        chain,
+        chainLabel: c.label,
+        symbol: c.stable,
+        total: balances.reduce((sum, wallet) => sum + wallet.amount, 0),
+        wallets: balances,
+      };
+    } catch {
+      return {
+        chain,
+        chainLabel: c.label,
+        symbol: c.stable,
+        total: null,
+        wallets: wallets.map((wallet) => ({ ...wallet, amount: null })),
+      };
+    }
+  }));
+  return entries;
 }
 
 async function readPosition(item) {
@@ -322,4 +366,4 @@ async function getPrices() {
   return result;
 }
 
-module.exports = { CHAINS, collectItems, readPosition, getPrices, valueInStable };
+module.exports = { CHAINS, collectItems, readPosition, getPrices, getWalletBalances, valueInStable };

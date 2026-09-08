@@ -49,9 +49,11 @@ async function main() {
   }
 
   const walletsList = walletsRaw.wallets || [];
-  const ksEntry = walletsList[0];
+  const ksEntry = walletsList.find((entry) =>
+    entry.address.toLowerCase() === item.address.toLowerCase(),
+  );
   if (!ksEntry || !ksEntry.keystore) {
-    console.error("не найден keystore в wallets.json");
+    console.error(`для позиции не найден keystore кошелька ${item.address}`);
     process.exit(1);
   }
 

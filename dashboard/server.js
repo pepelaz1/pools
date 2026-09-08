@@ -1,7 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { collectItems, readPosition, getPrices, valueInStable } = require("./lib");
+const { collectItems, readPosition, getPrices, getWalletBalances, valueInStable } = require("./lib");
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
@@ -43,15 +43,16 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/positions") {
     try {
       const items = collectItems();
-      const [data, prices] = await Promise.all([
+      const [data, prices, wallets] = await Promise.all([
         Promise.all(items.map((it) => readPosition(it))),
         getPrices(),
+        getWalletBalances(),
       ]);
       const filtered = data.filter(Boolean);
       filtered.sort((a, b) => b.valueUsd - a.valueUsd);
       filtered.forEach(enrich);
       saveSnapshot();
-      sendJson(res, 200, { positions: filtered, prices, updated: new Date().toISOString() });
+      sendJson(res, 200, { positions: filtered, prices, wallets, updated: new Date().toISOString() });
     } catch (e) {
       sendJson(res, 500, { error: e.shortMessage || e.message });
     }

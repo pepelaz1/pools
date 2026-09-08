@@ -122,12 +122,20 @@ async function swapWithRetries({ router, quoter, wallet, amountIn }) {
 }
 
 function parseArgs() {
-  const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+  const args = process.argv.slice(2).filter((a) => a !== "--dry-run");
+  const walletFlag = args.indexOf("--wallet");
+  if (walletFlag === -1 || !args[walletFlag + 1]) {
+    console.log("укажите кошелёк: --wallet <имя|адрес>");
+    console.log("пример: node open-position.js --wallet 697e 680 730 500");
+    process.exit(1);
+  }
+  const walletSelector = args[walletFlag + 1];
+  args.splice(walletFlag, 2);
 
   if (args.length < 3) {
-    console.log("использование: node open-position.js [--dry-run] <цена от> <цена до> <сумма USDT>");
-    console.log("пример: node open-position.js 680 730 500");
-    console.log("        node open-position.js --dry-run 680 730 1");
+    console.log("использование: node open-position.js [--dry-run] --wallet <имя|адрес> <цена от> <цена до> <сумма USDT>");
+    console.log("пример: node open-position.js --wallet 697e 680 730 500");
+    console.log("        node open-position.js --dry-run --wallet 697e 680 730 1");
     process.exit(1);
   }
 
@@ -143,7 +151,7 @@ function parseArgs() {
   const tickLower = priceToTick(1 / priceTo);
   const tickUpper = priceToTick(1 / priceFrom);
 
-  return { tickLower, tickUpper, amountUsd, priceFrom, priceTo };
+  return { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector };
 }
 
 function savePosition(address, tokenId, opened) {
@@ -166,13 +174,19 @@ function savePosition(address, tokenId, opened) {
 let wallet;
 
 async function main() {
-  const { tickLower, tickUpper, amountUsd, priceFrom, priceTo } = parseArgs();
+  const { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector } = parseArgs();
 
   const password = await promptHidden("мастер-пароль: ");
   const walletsRaw = JSON.parse(fs.readFileSync(KEYSTORE, "utf8"));
-  const keystore = walletsRaw.wallets[0].keystore;
+  const selectedWallet = (walletsRaw.wallets || []).find((item) =>
+    item.name === walletSelector || item.address.toLowerCase() === walletSelector.toLowerCase(),
+  );
+  if (!selectedWallet?.keystore) {
+    const available = (walletsRaw.wallets || []).map((item) => `${item.name || "без имени"} (${item.address})`).join(", ");
+    throw new Error(`кошелёк '${walletSelector}' не найден. Доступны: ${available}`);
+  }
   const provider = new ethers.JsonRpcProvider(CFG.rpc, CFG.chainId);
-  wallet = (await ethers.Wallet.fromEncryptedJson(keystore, password)).connect(provider);
+  wallet = (await ethers.Wallet.fromEncryptedJson(selectedWallet.keystore, password)).connect(provider);
 
   console.log(`\n${DRY_RUN ? "=== DRY RUN ===" : "=== MAINNET ==="}`);
   console.log(`кошелёк: ${wallet.address}`);
