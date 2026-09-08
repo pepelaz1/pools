@@ -37,6 +37,8 @@
   .wallet-card { margin-bottom:12px; }
   .wallet-total { font-size:15px; font-weight:700; margin:4px 0 8px; }
   .wallet-card .row { font-size:11px; }
+  .wallet-label { display:flex; align-items:center; gap:5px; }
+  .wallet-chain-marker { width:10px; height:10px; border-radius:3px; flex:0 0 auto; }
   .card { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:12px; }
   .card.out { border-color:#d4a72c; }
   .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -195,7 +197,8 @@ function renderWalletSection(wallets) {
       const key = wallet.address.toLowerCase();
       if (!perWallet.has(key)) perWallet.set(key, { ...wallet, balances: [] });
       perWallet.get(key).balances.push({
-        chain: group.chainLabel,
+        chain: group.chain,
+        chainLabel: group.chainLabel,
         symbol: group.symbol,
         amount: wallet.amount,
       });
@@ -206,7 +209,7 @@ function renderWalletSection(wallets) {
       ? null
       : wallet.balances.reduce((sum, balance) => sum + balance.amount, 0);
     const rows = wallet.balances.map((balance) => `
-      <div class="row"><span>${balance.chain} ${balance.symbol}</span><b>${fmt(balance.amount, 18)} ${balance.symbol}</b></div>`).join("");
+      <div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${balance.symbol}</span><b>${fmt(balance.amount, 18)} ${balance.symbol}</b></div>`).join("");
     return `
       <div class="card wallet-card">
         <div class="card-head"><div><span class="pair">${wallet.name || "Кошелёк"}</span></div></div>
