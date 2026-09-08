@@ -22,7 +22,7 @@
   .stat .k { color:#6b7280; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
   .stat .v { font-size:18px; font-weight:700; margin-top:4px; }
   .grid { display:grid; grid-template-columns:1fr; gap:16px; }
-  .position-columns { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:16px; margin-top:18px; }
+  .position-columns { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:16px; margin-top:18px; }
   .section { min-width:0; }
   .position-columns .card { padding:10px; }
   .position-columns .row { gap:3px; font-size:12px; }
@@ -39,6 +39,12 @@
   .wallet-card .row { font-size:11px; }
   .wallet-label { display:flex; align-items:center; gap:5px; }
   .wallet-chain-marker { width:10px; height:10px; border-radius:3px; flex:0 0 auto; }
+  .chart-card { padding:10px; margin-bottom:12px; }
+  .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
+  .chart-head .pair { font-size:12px; }
+  .chart-price { font-size:11px; font-weight:700; }
+  .chart-svg { display:block; width:100%; height:64px; margin:8px 0 4px; overflow:visible; }
+  .chart-meta { display:flex; justify-content:space-between; color:#6b7280; font-size:10px; }
   .card { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:12px; }
   .card.out { border-color:#d4a72c; }
   .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -225,7 +231,37 @@ function renderWalletSection(wallets) {
     </div>`;
 }
 
-function renderAll(positions, prices, wallets) {
+function renderChart(points, color) {
+  const values = points.map((point) => point[1]).filter(isFinite);
+  if (values.length < 2) return '<div class="muted">Нет данных</div>';
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = max - min || max * 0.01 || 1;
+  const line = points.map((point, index) => {
+    const x = (index / (points.length - 1)) * 100;
+    const y = 60 - ((point[1] - min) / spread) * 56;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
+  return `<svg class="chart-svg" viewBox="0 0 100 64" preserveAspectRatio="none" aria-label="График цены"><line x1="0" y1="60" x2="100" y2="60" stroke="#e1e4e8" stroke-width="1"/><polyline points="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderChartsSection(charts) {
+  const cards = Object.values(charts || {}).map((chart) => {
+    const points = chart.prices || [];
+    const first = points[0]?.[1];
+    const last = points.at(-1)?.[1];
+    const change = isFinite(first) && first !== 0 && isFinite(last) ? ((last / first) - 1) * 100 : null;
+    const changeClass = change == null ? "" : change >= 0 ? "good" : "bad";
+    return `<div class="card chart-card">
+      <div class="chart-head"><span class="pair">${chart.pair}</span><span class="chart-price">${isFinite(last) ? fmtUsd(last) : "—"}</span></div>
+      ${renderChart(points, chart.color)}
+      <div class="chart-meta"><span>24ч</span><span class="${changeClass}">${change == null ? "—" : fmtSignedPct(change)}</span></div>
+    </div>`;
+  }).join("");
+  return `<div class="section"><div class="section-head"><span class="dot" style="background:#6b7280"></span><h2>Графики</h2></div><div class="grid">${cards}</div></div>`;
+}
+
+function renderAll(positions, prices, wallets, charts) {
   prices = prices || {};
   const order = [["arbitrum", "Uniswap ETH/USDC"], ["avalanche", "Uniswap AVAX/USDC"], ["bsc", "PancakeSwap BNB/USDT"]];
   const groups = {};
@@ -239,6 +275,7 @@ function renderAll(positions, prices, wallets) {
     if (!order.some((o) => o[0] === key)) columns += renderSection(key, key, groups[key], prices[key]);
   }
   columns += renderWalletSection(wallets || []);
+  columns += renderChartsSection(charts || {});
 
   document.getElementById("sections").innerHTML = `<div class="position-columns">${columns}</div>`;
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
@@ -255,7 +292,7 @@ async function refreshAll() {
     const res = await fetch("/api/positions");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    renderAll(data.positions, data.prices, data.wallets);
+    renderAll(data.positions, data.prices, data.wallets, data.charts);
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
     alert("Ошибка: " + e.message);

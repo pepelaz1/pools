@@ -2,3 +2,4 @@ node_modules/
 wallets.json
 positions.json
 .env
+dashboard/price-cache.json
