@@ -32,12 +32,20 @@ const PM_ABI = [
 ];
 
 function usage() {
-  console.log("использование: node open-position.js [--dry-run] <цена нативного токена от> <цена до> <сумма USDC> [arbitrum|avalanche]");
-  console.log("пример: node open-position.js 2300 2500 500 arbitrum");
+  console.log("использование: node open-position.js [--dry-run] --wallet <имя|адрес> <цена нативного токена от> <цена до> <сумма USDC> [arbitrum|avalanche]");
+  console.log("пример: node open-position.js --wallet 697e 7.5 8.5 250 avalanche");
 }
 
 function parseArgs() {
   const args = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
+  const walletFlag = args.indexOf("--wallet");
+  if (walletFlag === -1 || !args[walletFlag + 1]) {
+    console.error("укажите кошелёк: --wallet <имя|адрес>");
+    usage();
+    process.exit(1);
+  }
+  const walletSelector = args[walletFlag + 1];
+  args.splice(walletFlag, 2);
   if (args.length < 3 || args.length > 4) {
     usage();
     process.exit(1);
@@ -54,7 +62,7 @@ function parseArgs() {
     console.error(`неизвестная сеть: ${chain}`);
     process.exit(1);
   }
-  return { priceFrom, priceTo, amount, chain };
+  return { priceFrom, priceTo, amount, chain, walletSelector };
 }
 
 function alignTicks(tickA, tickB, spacing) {
@@ -79,16 +87,22 @@ function writePosition(address, tokenId, chain, opened) {
 }
 
 async function main() {
-  const { priceFrom, priceTo, amount, chain } = parseArgs();
+  const { priceFrom, priceTo, amount, chain, walletSelector } = parseArgs();
   const cfg = CHAINS[chain];
   if (!fs.existsSync(WALLETS_FILE)) throw new Error("wallets.json не найден. Сначала запустите: node setup.js");
 
   const password = await promptHidden("мастер-пароль: ");
   const wallets = JSON.parse(fs.readFileSync(WALLETS_FILE, "utf8")).wallets || [];
-  if (!wallets[0]?.keystore) throw new Error("не найден keystore в wallets.json");
+  const selectedWallet = wallets.find((item) =>
+    item.name === walletSelector || item.address.toLowerCase() === walletSelector.toLowerCase(),
+  );
+  if (!selectedWallet?.keystore) {
+    const available = wallets.map((item) => `${item.name || "без имени"} (${item.address})`).join(", ");
+    throw new Error(`кошелёк '${walletSelector}' не найден. Доступны: ${available}`);
+  }
 
   const provider = new ethers.JsonRpcProvider(cfg.rpc, cfg.chainId);
-  const wallet = (await ethers.Wallet.fromEncryptedJson(wallets[0].keystore, password)).connect(provider);
+  const wallet = (await ethers.Wallet.fromEncryptedJson(selectedWallet.keystore, password)).connect(provider);
   const [token0, token1] = [cfg.stable, cfg.native].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : 1));
   const stableIs0 = token0.toLowerCase() === cfg.stable.toLowerCase();
 
@@ -154,7 +168,7 @@ async function main() {
     const token1PerToken0 = amount1PerLiquidity / amount0PerLiquidity;
     const nativePerStable = stableIs0
       ? token1PerToken0 * Math.pow(10, stableDec - nativeDec)
-      : Math.pow(10, nativeDec - stableDec) / token1PerToken0;
+      : Math.pow(10, stableDec - nativeDec) / token1PerToken0;
     let low = 0n;
     let high = budget;
     for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
