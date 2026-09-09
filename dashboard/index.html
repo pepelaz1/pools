@@ -55,6 +55,8 @@
   .range-status.in { background:#dafbe1; color:#1a7f37; }
   .range-status.outrange { background:#fff1e5; color:#bc4c00; }
   .sub { color:#6b7280; font-size:11px; margin:6px 0 8px; }
+  .position-time { color:#57606a; font-size:11px; margin:-3px 0 8px; }
+  .position-time b { color:#24292f; font-weight:600; }
   .range-labels { display:flex; justify-content:space-between; font-size:10px; color:#6b7280; }
   .rangebar { position:relative; height:5px; background:#e1e4e8; border-radius:4px; margin:5px 0 10px; }
   .rangebar-fill { position:absolute; top:0; bottom:0; background:#1a7f37; border-radius:4px; }
@@ -120,6 +122,32 @@ function badge(text, color) {
   return `<span class="badge" style="background:${color}">${text}</span>`;
 }
 
+function formatOpenedAt(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function formatPositionAge(value) {
+  const openedAt = new Date(value).getTime();
+  if (!Number.isFinite(openedAt)) return "";
+  const minutes = Math.max(0, Math.floor((Date.now() - openedAt) / 60_000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const restMinutes = minutes % 60;
+  if (days) return `${days} дн. ${hours} ч. ${restMinutes} мин.`;
+  if (hours) return `${hours} ч. ${restMinutes} мин.`;
+  return `${restMinutes} мин.`;
+}
+
+function updatePositionAges() {
+  document.querySelectorAll(".position-age").forEach((element) => {
+    element.textContent = formatPositionAge(element.dataset.openedAt);
+  });
+}
+
 function renderCard(r) {
   const dexColor = r.dex === "uniswap" ? "#ff007a" : "#1fc7d4";
   const chainColor = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b" }[r.chain] || "#888";
@@ -139,6 +167,9 @@ function renderCard(r) {
       <div class="row"><span>Цена</span><b>${fmt(r.displayOpeningPrice, 4)} → ${fmt(r.displayCurrentPrice, 4)} (${fmtSignedPct(r.priceChangePct)})</b></div>
       <div class="row"><span>P/L с комиссиями</span><b class="pnl ${r.pnlUsd >= 0 ? "good" : "bad"}">${fmtSignedUsd(r.pnlUsd)} (${fmtSignedPct(r.pnlPct)})</b></div>`
     : "";
+  const openedRow = r.openedAt
+    ? `<div class="position-time">Открыта: <b>${formatOpenedAt(r.openedAt)}</b> · в позиции <b class="position-age" data-opened-at="${r.openedAt}">${formatPositionAge(r.openedAt)}</b></div>`
+    : "";
   return `
   <div class="card ${r.inRange ? "" : "out"}" id="card-${r.id}">
     <div class="card-head">
@@ -146,6 +177,7 @@ function renderCard(r) {
       <div class="range-status ${r.inRange ? "in" : "outrange"}">${rangeLabel}</div>
     </div>
     <div class="sub">${r.name || ""} · ${r.address.slice(0, 6)}…${r.address.slice(-4)} · ID ${r.tokenId}</div>
+    ${openedRow}
     <div class="range-labels"><span>${fmt(r.displayLowerPrice || r.lowerPrice, 4)}</span><span>текущ. ${fmt(r.displayCurrentPrice || r.currentPrice, 4)}</span><span>${fmt(r.displayUpperPrice || r.upperPrice, 4)}</span></div>
     <div class="rangebar"><div class="rangebar-fill ${r.inRange ? "" : "out"}" style="left:0%;width:${r.displayPct == null ? r.pct : r.displayPct}%"></div><div class="rangebar-dot" style="left:${r.displayPct == null ? r.pct : r.displayPct}%"></div></div>
     <div class="rows">
@@ -283,6 +315,7 @@ function renderAll(positions, prices, wallets, charts) {
   document.getElementById("statCake").textContent = fmtUsd(positions.reduce((a, r) => a + (r.cake ? r.cake.usd : 0), 0));
   const inRange = positions.filter((r) => r.inRange).length;
   document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
+  updatePositionAges();
 }
 
 async function refreshAll() {
@@ -314,6 +347,7 @@ async function refreshOne(id) {
     const tmp = document.createElement("div");
     tmp.innerHTML = renderCard(p);
     card.replaceWith(tmp.firstElementChild);
+    updatePositionAges();
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
     alert("Ошибка: " + e.message);
@@ -322,6 +356,7 @@ async function refreshOne(id) {
 }
 
 refreshAll();
+setInterval(updatePositionAges, 60_000);
 </script>
 </body>
 </html>
