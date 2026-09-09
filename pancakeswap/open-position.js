@@ -42,6 +42,7 @@ const QUOTER_ABI = [
 const PM_ABI = [
   "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
   "function mint(tuple(address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline) params) payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)",
+  "function increaseLiquidity(tuple(uint256 tokenId, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint128 liquidity, uint256 amount0, uint256 amount1)",
   "function createAndInitializePoolIfNecessary(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) payable returns (address pool)",
   "function setApprovalForAll(address,bool) returns (bool)",
   "function isApprovedForAll(address,address) view returns (bool)",
@@ -119,6 +120,68 @@ async function swapWithRetries({ router, quoter, wallet, amountIn }) {
     }
   }
   throw lastError;
+}
+
+async function mintWithRetries(pm, mintParams) {
+  let lastError;
+  for (let attempt = 1; attempt <= TX_ATTEMPTS; attempt += 1) {
+    try {
+      const preview = await pm.mint.staticCall(mintParams);
+      console.log(`   preview: amount0=${ethers.formatUnits(preview.amount0, 18)}, amount1=${ethers.formatUnits(preview.amount1, 18)}`);
+      const estimatedGas = await pm.mint.estimateGas(mintParams);
+      const tx = await pm.mint(mintParams, { gasLimit: estimatedGas * 120n / 100n });
+      console.log(`   tx: ${tx.hash}`);
+      const receipt = await tx.wait();
+      return { preview, receipt };
+    } catch (error) {
+      lastError = error;
+      const retryable = error.code === "CALL_EXCEPTION" || /transaction execution reverted/i.test(error.message || "");
+      if (!retryable || attempt === TX_ATTEMPTS) throw error;
+      console.log(`   mint попытка ${attempt}/${TX_ATTEMPTS} откатилась; повторяю через ${attempt * 2} с...`);
+      await sleep(attempt * 2_000);
+    }
+  }
+  throw lastError;
+}
+
+async function increaseWithRetries(pm, increaseParams) {
+  let lastError;
+  for (let attempt = 1; attempt <= TX_ATTEMPTS; attempt += 1) {
+    try {
+      const preview = await pm.increaseLiquidity.staticCall(increaseParams);
+      const estimatedGas = await pm.increaseLiquidity.estimateGas(increaseParams);
+      const tx = await pm.increaseLiquidity(increaseParams, { gasLimit: estimatedGas * 120n / 100n });
+      console.log(`   tx: ${tx.hash}`);
+      const receipt = await tx.wait();
+      return { preview, receipt };
+    } catch (error) {
+      lastError = error;
+      const retryable = error.code === "CALL_EXCEPTION" || /transaction execution reverted/i.test(error.message || "");
+      if (!retryable || attempt === TX_ATTEMPTS) throw error;
+      console.log(`   increase попытка ${attempt}/${TX_ATTEMPTS} откатилась; повторяю через ${attempt * 2} с...`);
+      await sleep(attempt * 2_000);
+    }
+  }
+  throw lastError;
+}
+
+async function stakeWithRetries(pm, walletAddress, tokenId) {
+  for (let attempt = 1; attempt <= TX_ATTEMPTS; attempt += 1) {
+    try {
+      const estimatedGas = await pm.safeTransferFrom.estimateGas(walletAddress, CFG.masterChef, tokenId);
+      const tx = await pm.safeTransferFrom(walletAddress, CFG.masterChef, tokenId, {
+        gasLimit: estimatedGas * 120n / 100n,
+      });
+      console.log(`   tx: ${tx.hash}`);
+      await tx.wait();
+      return;
+    } catch (error) {
+      const retryable = error.code === "CALL_EXCEPTION" || /transaction execution reverted/i.test(error.message || "");
+      if (!retryable || attempt === TX_ATTEMPTS) throw error;
+      console.log(`   стейкинг попытка ${attempt}/${TX_ATTEMPTS} откатилась; повторяю через ${attempt * 2} с...`);
+      await sleep(attempt * 2_000);
+    }
+  }
 }
 
 function parseArgs() {
@@ -264,32 +327,37 @@ async function main() {
     console.log(`\nтекущий тик ${currentTick} >= ${tickUpper} (выше диапазона)`);
     console.log(`  позиция = 100% WBNB`);
   } else {
-    const sqrtCurrent = Number(slot0.sqrtPriceX96) / 2 ** 96;
     const sqrtLower = Math.pow(1.0001, tickLower / 2);
     const sqrtUpper = Math.pow(1.0001, tickUpper / 2);
-    const amount0PerLiquidity = 1 / sqrtCurrent - 1 / sqrtUpper;
-    const amount1PerLiquidity = sqrtCurrent - sqrtLower;
-    const wbnbPerUsdt = amount1PerLiquidity / amount0PerLiquidity;
+    const requiredWbnb = (usdt, sqrtPriceX96) => {
+      const sqrtPrice = Number(sqrtPriceX96) / 2 ** 96;
+      if (sqrtPrice <= sqrtLower) return 0n;
+      if (sqrtPrice >= sqrtUpper) return ethers.MaxUint256;
+      const wbnbPerUsdt = (sqrtPrice - sqrtLower) / (1 / sqrtPrice - 1 / sqrtUpper);
+      return ethers.parseUnits(
+        (Number(ethers.formatUnits(usdt, 18)) * wbnbPerUsdt).toFixed(18),
+        18,
+      );
+    };
 
     let low = 0n;
     let high = amountIn;
 
-    // Use the exact liquidity ratio and router quote to account for price impact.
+    // The swap changes the pool price, so use Quoter's post-swap price for each candidate ratio.
     for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
       const candidateSwap = (low + high) / 2n;
       const candidateUsdt = amountIn - candidateSwap;
-      const quote = await quoter.quoteExactInputSingle.staticCall({
-        tokenIn: CFG.usdt,
-        tokenOut: CFG.wbnb,
-        amountIn: candidateSwap,
-        fee: CFG.fee,
-        sqrtPriceLimitX96: 0,
-      });
-      const requiredWbnb = ethers.parseUnits(
-        (Number(ethers.formatUnits(candidateUsdt, 18)) * wbnbPerUsdt).toFixed(18),
-        18,
-      );
-      if (quote.amountOut >= requiredWbnb) high = candidateSwap;
+      const quote = candidateSwap === 0n
+        ? { amountOut: 0n, sqrtPriceX96After: slot0.sqrtPriceX96 }
+        : await quoter.quoteExactInputSingle.staticCall({
+          tokenIn: CFG.usdt,
+          tokenOut: CFG.wbnb,
+          amountIn: candidateSwap,
+          fee: CFG.fee,
+          sqrtPriceLimitX96: 0,
+        });
+      const required = requiredWbnb(candidateUsdt, quote.sqrtPriceX96After);
+      if (quote.amountOut >= required) high = candidateSwap;
       else low = candidateSwap + 1n;
     }
 
@@ -362,7 +430,6 @@ async function main() {
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
   const deadline = Math.floor(Date.now() / 1000) + 1800;
 
-  // preview mint
   const mintParams = {
     token0: t0,
     token1: t1,
@@ -376,11 +443,7 @@ async function main() {
     recipient: wallet.address,
     deadline,
   };
-  const preview = await pm.mint.staticCall(mintParams);
-  console.log(`   actual: amount0=${ethers.formatUnits(preview.amount0, 18)}, amount1=${ethers.formatUnits(preview.amount1, 18)}`);
-
-  const mintTx = await pm.mint(mintParams);
-  const mintReceipt = await mintTx.wait();
+  const { preview, receipt: mintReceipt } = await mintWithRetries(pm, mintParams);
 
   let tokenId = null;
   for (const log of mintReceipt.logs) {
@@ -405,18 +468,73 @@ async function main() {
     }
   });
   const actual = increase ? pm.interface.parseLog(increase).args : preview;
-  const openingSlot0 = await pool.slot0();
-  const amount0 = Number(ethers.formatUnits(actual.amount0, 18));
-  const amount1 = Number(ethers.formatUnits(actual.amount1, 18));
-  const openingPrice = (Number(openingSlot0.sqrtPriceX96) / 2 ** 96) ** 2;
-  const initialValueUsd = usdtIs0 ? amount0 + amount1 / openingPrice : amount1 + amount0 * openingPrice;
+  let amount0Raw = actual.amount0;
+  let amount1Raw = actual.amount1;
+  let openingSlot0 = await pool.slot0();
+  let openingPrice = (Number(openingSlot0.sqrtPriceX96) / 2 ** 96) ** 2;
+  let amount0 = Number(ethers.formatUnits(amount0Raw, 18));
+  let amount1 = Number(ethers.formatUnits(amount1Raw, 18));
+  let initialValueUsd = usdtIs0 ? amount0 + amount1 / openingPrice : amount1 + amount0 * openingPrice;
+
+  // The price can move between the swap and mint; use the small leftover before staking the NFT.
+  const residualUsd = amountUsd - initialValueUsd;
+  if (residualUsd > 0.05 && Number(openingSlot0.tick) >= tickLower && Number(openingSlot0.tick) < tickUpper) {
+    try {
+      const sqrtPrice = Number(openingSlot0.sqrtPriceX96) / 2 ** 96;
+      const sqrtLower = Math.pow(1.0001, tickLower / 2);
+      const sqrtUpper = Math.pow(1.0001, tickUpper / 2);
+      const wbnbPerUsdt = (sqrtPrice - sqrtLower) / (1 / sqrtPrice - 1 / sqrtUpper);
+      const topUpUsdt = residualUsd / (1 + wbnbPerUsdt / openingPrice);
+      const topUpSwap = residualUsd - topUpUsdt;
+      const topUpUsdtRaw = ethers.parseUnits(topUpUsdt.toFixed(18), 18);
+      const topUpSwapRaw = ethers.parseUnits(topUpSwap.toFixed(18), 18);
+      const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
+      const wbnbBefore = await wbnbC.balanceOf(wallet.address);
+
+      console.log(`3b. докладываю остаток: ~${residualUsd.toFixed(4)} USDT...`);
+      if (topUpSwapRaw > 0n) await swapWithRetries({ router, quoter, wallet, amountIn: topUpSwapRaw });
+      const topUpWbnbRaw = (await wbnbC.balanceOf(wallet.address)) - wbnbBefore;
+      const increaseParams = {
+        tokenId,
+        amount0Desired: usdtIs0 ? topUpUsdtRaw : topUpWbnbRaw,
+        amount1Desired: usdtIs0 ? topUpWbnbRaw : topUpUsdtRaw,
+        amount0Min: 0,
+        amount1Min: 0,
+        deadline: Math.floor(Date.now() / 1000) + 1800,
+      };
+      const { preview: topUpPreview, receipt: topUpReceipt } = await increaseWithRetries(pm, increaseParams);
+      const topUpLog = topUpReceipt.logs.find((log) => {
+        try {
+          return log.address.toLowerCase() === CFG.positionManager.toLowerCase()
+            && pm.interface.parseLog(log)?.name === "IncreaseLiquidity";
+        } catch {
+          return false;
+        }
+      });
+      const topUp = topUpLog ? pm.interface.parseLog(topUpLog).args : topUpPreview;
+      amount0Raw += topUp.amount0;
+      amount1Raw += topUp.amount1;
+      openingSlot0 = await pool.slot0();
+      openingPrice = (Number(openingSlot0.sqrtPriceX96) / 2 ** 96) ** 2;
+      amount0 = Number(ethers.formatUnits(amount0Raw, 18));
+      amount1 = Number(ethers.formatUnits(amount1Raw, 18));
+      initialValueUsd = usdtIs0 ? amount0 + amount1 / openingPrice : amount1 + amount0 * openingPrice;
+      console.log(`   внесено после корректировки: ${initialValueUsd.toFixed(4)} USDT`);
+    } catch (error) {
+      console.log(`   остаток не довнесён: ${error.shortMessage || error.message}`);
+    }
+  }
   const opened = {
     at: new Date().toISOString(),
     price: openingPrice,
-    amount0: ethers.formatUnits(actual.amount0, 18),
-    amount1: ethers.formatUnits(actual.amount1, 18),
+    amount0: ethers.formatUnits(amount0Raw, 18),
+    amount1: ethers.formatUnits(amount1Raw, 18),
     valueUsd: initialValueUsd,
   };
+
+  // Keep the NFT visible to the dashboard even if a later MasterChef transfer fails.
+  savePosition(wallet.address, tokenId, opened);
+  console.log("   позиция сохранена в positions.json");
 
   // 4. stake (safeTransferFrom NFT to MasterChef)
   console.log("4. стейкаю в MasterChef...");
@@ -425,11 +543,8 @@ async function main() {
     await (await pm.setApprovalForAll(CFG.masterChef, true)).wait();
     console.log("   approveAll ok");
   }
-  await (await pm.safeTransferFrom(wallet.address, CFG.masterChef, tokenId)).wait();
+  await stakeWithRetries(pm, wallet.address, tokenId);
   console.log("   стейкинг ok");
-
-  savePosition(wallet.address, tokenId, opened);
-  console.log("   позиция сохранена в positions.json");
 
   console.log(`\n=== готово ===`);
   console.log(`tokenId: ${tokenId}`);
