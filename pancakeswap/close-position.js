@@ -17,9 +17,12 @@ function removePosition(raw, tokenId) {
 }
 
 async function main() {
-  const tokenIdArg = process.argv[2];
+  const args = process.argv.slice(2);
+  const keepBnb = args.includes("--keep-bnb");
+  const tokenIdArg = args.find((arg) => /^\d+$/.test(arg));
   if (!tokenIdArg) {
-    console.log("использование: node close-position.js <tokenId>");
+    console.log("использование: node close-position.js <tokenId> [--keep-bnb]");
+    console.log("  --keep-bnb: конвертировать USDT и CAKE из позиции в нативный BNB вместо USDT");
     process.exit(1);
   }
 
@@ -69,11 +72,12 @@ async function main() {
   ).balanceOf(wallet.address);
 
   console.log(`\nкошелёк: ${wallet.address}`);
-  console.log(`закрываю позицию ${item.tokenId}\n`);
+  console.log(`закрываю позицию ${item.tokenId}${keepBnb ? " с конвертацией в BNB" : ""}\n`);
 
   try {
     const stats = await closePosition(connected, item.tokenId, {
       slippageBps: 100,
+      keepBnb,
     });
     if (stats.status === "skip") {
       console.log(`пропуск: ${stats.reason}`);
@@ -81,7 +85,7 @@ async function main() {
       removePosition(raw, item.tokenId);
       console.log("позиция удалена из positions.json");
       console.log(`готово. шаги: ${stats.steps.join(", ")}`);
-      console.log(`usdt сейчас: ${ethers.formatUnits(stats.usdtReceived, 18)}`);
+      console.log(`${keepBnb ? "BNB" : "USDT"} сейчас: ${ethers.formatUnits(keepBnb ? stats.bnbBalance : stats.usdtReceived, 18)}`);
       if (stats.cakeReceived) {
         console.log(`собрано CAKE: ${ethers.formatUnits(stats.cakeReceived, 18)}`);
       }
@@ -100,6 +104,7 @@ async function main() {
   console.log("\n=== итого ===");
   console.log(`потрачено BNB: ${ethers.formatEther(balBefore - balAfter)}`);
   console.log(`изменение USDT: ${ethers.formatUnits(usdtAfter - usdtBefore, 18)}`);
+  if (keepBnb) console.log(`изменение BNB с учётом газа: ${ethers.formatEther(balAfter - balBefore)}`);
 }
 
 main().catch((e) => {
