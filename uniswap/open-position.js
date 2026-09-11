@@ -160,24 +160,31 @@ async function main() {
   } else if (stableOnly) {
     console.log("позиция вне диапазона: будет целиком в USDC");
   } else {
-    const sqrtCurrent = Number(slot0.sqrtPriceX96) / 2 ** 96;
     const sqrtLower = Math.pow(1.0001, tickLower / 2);
     const sqrtUpper = Math.pow(1.0001, tickUpper / 2);
-    const amount0PerLiquidity = 1 / sqrtCurrent - 1 / sqrtUpper;
-    const amount1PerLiquidity = sqrtCurrent - sqrtLower;
-    const token1PerToken0 = amount1PerLiquidity / amount0PerLiquidity;
-    const nativePerStable = stableIs0
-      ? token1PerToken0 * Math.pow(10, stableDec - nativeDec)
-      : Math.pow(10, stableDec - nativeDec) / token1PerToken0;
+    const requiredNative = (stableAmount, sqrtPriceX96) => {
+      const sqrtPrice = Number(sqrtPriceX96) / 2 ** 96;
+      if (sqrtPrice <= sqrtLower) return 0n;
+      if (sqrtPrice >= sqrtUpper) return ethers.MaxUint256;
+      const token1PerToken0 = (sqrtPrice - sqrtLower) / (1 / sqrtPrice - 1 / sqrtUpper);
+      const nativePerStable = stableIs0
+        ? token1PerToken0 * Math.pow(10, stableDec - nativeDec)
+        : Math.pow(10, stableDec - nativeDec) / token1PerToken0;
+      return ethers.parseUnits(
+        (Number(ethers.formatUnits(stableAmount, stableDec)) * nativePerStable).toFixed(nativeDec), nativeDec,
+      );
+    };
     let low = 0n;
     let high = budget;
     for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
       const candidate = (low + high) / 2n;
       const remainingStable = budget - candidate;
-      const requiredNative = ethers.parseUnits(
-        (Number(ethers.formatUnits(remainingStable, stableDec)) * nativePerStable).toFixed(nativeDec), nativeDec,
-      );
-      if (await quoteNative(candidate) >= requiredNative) high = candidate;
+      const quote = candidate === 0n
+        ? { 0: 0n, 1: slot0.sqrtPriceX96 }
+        : await quoter.quoteExactInputSingle.staticCall({
+          tokenIn: cfg.stable, tokenOut: cfg.native, amountIn: candidate, fee: cfg.defaultFee, sqrtPriceLimitX96: 0,
+        });
+      if (quote[0] >= requiredNative(remainingStable, quote[1])) high = candidate;
       else low = candidate + 1n;
     }
     stableToSwap = high;

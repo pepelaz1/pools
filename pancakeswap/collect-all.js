@@ -6,7 +6,7 @@ const { collectAndSwap, getOwner, RPC, promptHidden } = require("./lib");
 const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const POSITIONS_FILE = path.join(__dirname, "positions.json");
 const SLIPPAGE_BPS = Number(process.env.SLIPPAGE_BPS) || 100;
-const MIN_USD = Number(process.env.MIN_USD) || 1;
+const MIN_USD = Number(process.env.MIN_USD ?? 1);
 
 async function main() {
   if (!fs.existsSync(WALLETS_FILE)) {
@@ -98,6 +98,7 @@ async function main() {
         console.log(`Свап WBNB -> USDT: ${ethers.formatUnits(res.swappedWbnbUsdt, res.usdtDec)}`);
         console.log(`Свап CAKE -> USDT: ${ethers.formatUnits(res.swappedCakeUsdt, res.usdtDec)}`);
         console.log(`ИТОГО USDT: ${ethers.formatUnits(res.totalUsdt, res.usdtDec)}`);
+        for (const warning of res.swapWarnings || []) console.warn(`ВНИМАНИЕ: ${warning}`);
         if (toAddress) console.log(`Отправлено на ${toAddress}`);
         grandTotal += res.totalUsdt;
         summary.push({

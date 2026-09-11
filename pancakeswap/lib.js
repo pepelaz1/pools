@@ -84,17 +84,18 @@ async function swapToUsdt(wallet, tokenIn, amountIn, fee, slippageBps) {
   const usdtC = new ethers.Contract(USDT, ERC20_ABI, wallet);
   const before = await usdtC.balanceOf(me);
   const router = new ethers.Contract(SWAP_ROUTER, SWAP_ABI, wallet);
-  await (
-    await router.exactInputSingle({
-      tokenIn,
-      tokenOut: USDT,
-      fee,
-      recipient: me,
-      amountIn,
-      amountOutMinimum: amountOutMin,
-      sqrtPriceLimitX96: 0,
-    })
-  ).wait();
+  const params = {
+    tokenIn,
+    tokenOut: USDT,
+    fee,
+    recipient: me,
+    amountIn,
+    amountOutMinimum: amountOutMin,
+    sqrtPriceLimitX96: 0,
+  };
+  await router.exactInputSingle.staticCall(params);
+  const estimatedGas = await router.exactInputSingle.estimateGas(params);
+  await (await router.exactInputSingle(params, { gasLimit: estimatedGas * 120n / 100n })).wait();
   const after = await usdtC.balanceOf(me);
   return after - before;
 }
@@ -220,29 +221,39 @@ async function collectAndSwap(wallet, tokenId, { toAddress, slippageBps = 100, m
     };
   }
 
-  if (isStaked) {
-    await (await mc.collect(collectParams)).wait();
-  } else {
-    await (await pm.collect(collectParams)).wait();
+  if (wbnbCollected > 0n || usdtCollected > 0n) {
+    const collectContract = isStaked ? mc : pm;
+    const estimatedGas = await collectContract.collect.estimateGas(collectParams);
+    await (await collectContract.collect(collectParams, { gasLimit: estimatedGas * 120n / 100n })).wait();
   }
 
   let cakeReceived = 0n;
   if (cakeOwed > 0n) {
     const cakeC = new ethers.Contract(CAKE, ERC20_ABI, wallet);
     const cakeBefore = await cakeC.balanceOf(me);
-    await (await mc.harvest(tokenId, me)).wait();
+    const estimatedGas = await mc.harvest.estimateGas(tokenId, me);
+    await (await mc.harvest(tokenId, me, { gasLimit: estimatedGas * 120n / 100n })).wait();
     const cakeAfter = await cakeC.balanceOf(me);
     cakeReceived = cakeAfter - cakeBefore;
   }
 
   let swappedWbnbUsdt = 0n;
+  const swapWarnings = [];
   if (wbnbCollected > 0n) {
-    swappedWbnbUsdt = await swapToUsdt(wallet, WBNB, wbnbCollected, WBNB_USDT_FEE, slippageBps);
+    try {
+      swappedWbnbUsdt = await swapToUsdt(wallet, WBNB, wbnbCollected, WBNB_USDT_FEE, slippageBps);
+    } catch (error) {
+      swapWarnings.push(`WBNB не обменян: ${error.shortMessage || error.message}`);
+    }
   }
 
   let swappedCakeUsdt = 0n;
   if (cakeReceived > 0n) {
-    swappedCakeUsdt = await swapToUsdt(wallet, CAKE, cakeReceived, CAKE_USDT_FEE, slippageBps);
+    try {
+      swappedCakeUsdt = await swapToUsdt(wallet, CAKE, cakeReceived, CAKE_USDT_FEE, slippageBps);
+    } catch (error) {
+      swapWarnings.push(`CAKE не обменян: ${error.shortMessage || error.message}`);
+    }
   }
 
   const totalUsdt = usdtCollected + swappedWbnbUsdt + swappedCakeUsdt;
@@ -263,6 +274,7 @@ async function collectAndSwap(wallet, tokenId, { toAddress, slippageBps = 100, m
     swappedWbnbUsdt,
     swappedCakeUsdt,
     totalUsdt,
+    swapWarnings,
   };
 }
 

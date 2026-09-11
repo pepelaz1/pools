@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
         getCharts(),
       ]);
       const filtered = data.filter(Boolean);
-      filtered.sort((a, b) => b.valueUsd - a.valueUsd);
+      filtered.sort((a, b) => Number(b.inRange) - Number(a.inRange) || b.valueUsd - a.valueUsd);
       filtered.forEach(enrich);
       saveSnapshot();
       sendJson(res, 200, { positions: filtered, prices, wallets, charts, updated: new Date().toISOString() });

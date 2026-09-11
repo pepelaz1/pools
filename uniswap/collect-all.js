@@ -6,7 +6,7 @@ const { collectAndSwap, getOwner, CHAINS, promptHidden } = require("./lib");
 const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const POSITIONS_FILE = path.join(__dirname, "positions.json");
 const SLIPPAGE_BPS = Number(process.env.SLIPPAGE_BPS) || 100;
-const MIN_USD = Number(process.env.MIN_USD) || 1;
+const MIN_USD = Number(process.env.MIN_USD ?? 1);
 
 const providers = {};
 function getProvider(chain) {
