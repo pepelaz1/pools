@@ -8,6 +8,7 @@ const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const POSITIONS_FILE = path.join(__dirname, "positions.json");
 const DRY_RUN = process.argv.includes("--dry-run");
 const SLIPPAGE_BPS = Number(process.env.SLIPPAGE_BPS) || 100;
+const MAX_VALUE_LOSS_BPS = Number(process.env.MAX_VALUE_LOSS_BPS ?? 50);
 
 const ERC20_ABI = [
   "function decimals() view returns (uint8)",
@@ -34,6 +35,7 @@ const PM_ABI = [
 function usage() {
   console.log("использование: node open-position.js [--dry-run] --wallet <имя|адрес> <цена нативного токена от> <цена до> <сумма USDC> [arbitrum|avalanche]");
   console.log("пример: node open-position.js --wallet 697e 7.5 8.5 250 avalanche");
+  console.log("по умолчанию открытие отменяется, если ожидаемая потеря на свапе выше 0.5%; MAX_VALUE_LOSS_BPS=100 разрешает до 1%.");
 }
 
 function parseArgs() {
@@ -89,6 +91,9 @@ function writePosition(address, tokenId, chain, opened) {
 async function main() {
   const { priceFrom, priceTo, amount, chain, walletSelector } = parseArgs();
   const cfg = CHAINS[chain];
+  if (!Number.isFinite(MAX_VALUE_LOSS_BPS) || MAX_VALUE_LOSS_BPS < 0 || MAX_VALUE_LOSS_BPS >= 10000) {
+    throw new Error("MAX_VALUE_LOSS_BPS должен быть числом от 0 до 9999");
+  }
   if (!fs.existsSync(WALLETS_FILE)) throw new Error("wallets.json не найден. Сначала запустите: node setup.js");
 
   const password = await promptHidden("мастер-пароль: ");
@@ -144,6 +149,7 @@ async function main() {
   let stableToMint = budget;
   let stableToSwap = 0n;
   let nativeTarget = 0n;
+  let quoteAfterSwap = { 0: 0n, 1: slot0.sqrtPriceX96 };
   const quoter = new ethers.Contract(cfg.quoter, QUOTER_ABI, provider);
   const quoteNative = async (stableIn) => (await quoter.quoteExactInputSingle.staticCall({
     tokenIn: cfg.stable, tokenOut: cfg.native, amountIn: stableIn, fee: cfg.defaultFee, sqrtPriceLimitX96: 0,
@@ -155,7 +161,6 @@ async function main() {
   if (nativeOnly) {
     stableToMint = 0n;
     stableToSwap = budget;
-    nativeTarget = await quoteNative(budget);
     console.log("позиция вне диапазона: будет целиком в WETH/WAVAX");
   } else if (stableOnly) {
     console.log("позиция вне диапазона: будет целиком в USDC");
@@ -189,10 +194,29 @@ async function main() {
     }
     stableToSwap = high;
     stableToMint = budget - high;
-    nativeTarget = await quoteNative(high);
     console.log("позиция в диапазоне: пропорция USDC/WETH подобрана по котировке пула");
   }
+  if (stableToSwap > 0n) {
+    quoteAfterSwap = await quoter.quoteExactInputSingle.staticCall({
+      tokenIn: cfg.stable, tokenOut: cfg.native, amountIn: stableToSwap, fee: cfg.defaultFee, sqrtPriceLimitX96: 0,
+    });
+    nativeTarget = quoteAfterSwap[0];
+  }
+
+  // Value the expected mint amounts at the price after the simulated swap. This prevents
+  // a thin pool from silently turning the requested USDC amount into a smaller position.
+  const rawToken1PerToken0 = (Number(quoteAfterSwap[1]) / 2 ** 96) ** 2;
+  const token1PerToken0 = rawToken1PerToken0 * Math.pow(10, (stableIs0 ? stableDec : nativeDec) - (stableIs0 ? nativeDec : stableDec));
+  const nativePriceUsd = stableIs0 ? 1 / token1PerToken0 : token1PerToken0;
+  const expectedValueUsd = Number(ethers.formatUnits(stableToMint, stableDec))
+    + Number(ethers.formatUnits(nativeTarget, nativeDec)) * nativePriceUsd;
+  const requestedValueUsd = Number(ethers.formatUnits(budget, stableDec));
+  const expectedLossBps = Math.max(0, (1 - expectedValueUsd / requestedValueUsd) * 10000);
   console.log(`для mint: ${ethers.formatUnits(stableToMint, stableDec)} ${cfg.stableName}; ожидается ${ethers.formatUnits(nativeTarget, nativeDec)} ${cfg.nativeName}`);
+  console.log(`ожидаемая стоимость: $${expectedValueUsd.toFixed(2)}; потери на свапе: ${(expectedLossBps / 100).toFixed(3)}%`);
+  if (expectedLossBps > MAX_VALUE_LOSS_BPS) {
+    throw new Error(`свап отменён: ожидаемые потери ${(expectedLossBps / 100).toFixed(3)}% выше лимита ${(MAX_VALUE_LOSS_BPS / 100).toFixed(2)}%. Измените MAX_VALUE_LOSS_BPS, только если сознательно принимаете этот риск.`);
+  }
   if (DRY_RUN) return;
 
   if (await stable.allowance(wallet.address, cfg.swapRouter) < budget) await (await stable.approve(cfg.swapRouter, ethers.MaxUint256)).wait();
