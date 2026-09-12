@@ -7,7 +7,7 @@
 <style>
   * { box-sizing: border-box; }
   body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f6f8fa; color:#1f2328; }
-  .wrap { width:66%; margin:0 auto; padding:10px 24px; }
+  .wrap { width:75%; margin:0 auto; padding:10px 24px; }
   header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
   h1 { font-size:17px; margin:0; }
   .muted { color:#6b7280; font-size:11px; }
@@ -21,10 +21,10 @@
   .stat { background:#fff; border:1px solid #e1e4e8; border-radius:8px; padding:7px 9px; }
   .stat .k { color:#6b7280; font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
   .stat .v { font-size:16px; font-weight:700; margin-top:2px; }
-  .grid { display:grid; grid-template-columns:1fr; gap:16px; }
-  .position-columns { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:16px; margin-top:10px; }
-  .section { min-width:0; }
-  .position-columns .card { padding:10px; }
+  .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
+  .position-columns { display:grid; grid-template-columns:repeat(5, calc((100% - 64px) / 5)); column-gap:16px; row-gap:16px; margin-top:10px; }
+  .section, .section .grid { min-width:0; width:100%; }
+  .position-columns .card { min-width:0; padding:10px; }
   .position-columns .row { gap:3px; font-size:12px; }
   .position-columns .row b { letter-spacing:-.15px; white-space:nowrap; }
   .position-columns .fee-row { font-size:11px; }
