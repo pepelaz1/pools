@@ -8,6 +8,7 @@ const INDEX_FILE = path.join(__dirname, "index.html");
 const SNAPSHOT_FILE = path.join(__dirname, "snapshot.json");
 const PRICE_CACHE_FILE = path.join(__dirname, "price-cache.json");
 const CHARTS = {
+  btc: { pair: "BTC/USDC", coin: "bitcoin", color: "#f7931a" },
   eth: { pair: "ETH/USDC", coin: "ethereum", color: "#627eea" },
   avax: { pair: "AVAX/USDC", coin: "avalanche-2", color: "#e84142" },
   bnb: { pair: "BNB/USDT", coin: "binancecoin", color: "#f0b90b" },
@@ -35,10 +36,13 @@ function savePriceCache() {
   fs.writeFileSync(PRICE_CACHE_FILE, JSON.stringify(priceCache, null, 2));
 }
 
-async function getCharts() {
-  if (priceCache?.updated && Date.now() - priceCache.updated < 15 * 60 * 1000) return priceCache.charts;
+async function getMarketData() {
+  if (priceCache?.updated && Date.now() - priceCache.updated < 15 * 60 * 1000 && Number.isFinite(priceCache.rubPerUsd)) {
+    return { charts: priceCache.charts, rubPerUsd: priceCache.rubPerUsd };
+  }
 
-  const entries = await Promise.all(Object.entries(CHARTS).map(async ([key, chart]) => {
+  const [entries, rubPerUsd] = await Promise.all([
+    Promise.all(Object.entries(CHARTS).map(async ([key, chart]) => {
     try {
       const response = await fetch(
         `https://api.coingecko.com/api/v3/coins/${chart.coin}/market_chart?vs_currency=usd&days=1&interval=hourly`,
@@ -50,11 +54,21 @@ async function getCharts() {
     } catch {
       return [key, { pair: chart.pair, color: chart.color, prices: [] }];
     }
-  }));
+    })),
+    fetch("https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=rub", {
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`CoinGecko ${response.status}`);
+        const data = await response.json();
+        return Number(data["usd-coin"]?.rub);
+      })
+      .catch(() => null),
+  ]);
 
-  priceCache = { updated: Date.now(), charts: Object.fromEntries(entries) };
+  priceCache = { updated: Date.now(), charts: Object.fromEntries(entries), rubPerUsd };
   savePriceCache();
-  return priceCache.charts;
+  return { charts: priceCache.charts, rubPerUsd };
 }
 
 function enrich(p) {
@@ -82,17 +96,24 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/positions") {
     try {
       const items = collectItems();
-      const [data, prices, wallets, charts] = await Promise.all([
+      const [data, prices, wallets, marketData] = await Promise.all([
         Promise.all(items.map((it) => readPosition(it))),
         getPrices(),
         getWalletBalances(),
-        getCharts(),
+        getMarketData(),
       ]);
       const filtered = data.filter(Boolean);
       filtered.sort((a, b) => Number(b.inRange) - Number(a.inRange) || b.valueUsd - a.valueUsd);
       filtered.forEach(enrich);
       saveSnapshot();
-      sendJson(res, 200, { positions: filtered, prices, wallets, charts, updated: new Date().toISOString() });
+      sendJson(res, 200, {
+        positions: filtered,
+        prices,
+        wallets,
+        charts: marketData.charts,
+        rubPerUsd: marketData.rubPerUsd,
+        updated: new Date().toISOString(),
+      });
     } catch (e) {
       sendJson(res, 500, { error: e.shortMessage || e.message });
     }

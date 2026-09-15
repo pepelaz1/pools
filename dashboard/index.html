@@ -21,21 +21,24 @@
   .stat { background:#fff; border:1px solid #e1e4e8; border-radius:8px; padding:7px 9px; }
   .stat .k { color:#6b7280; font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
   .stat .v { font-size:16px; font-weight:700; margin-top:2px; }
+  .stat .rate { color:#6b7280; font-size:10px; margin-top:2px; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
-  .position-columns { display:grid; grid-template-columns:repeat(5, calc((100% - 64px) / 5)); column-gap:16px; row-gap:16px; margin-top:10px; }
+  .position-columns { display:grid; grid-template-columns:repeat(3, minmax(0, 1.1fr)) repeat(2, minmax(0, .85fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
   .section, .section .grid { min-width:0; width:100%; }
   .position-columns .card { min-width:0; padding:10px; }
   .position-columns .row { gap:3px; font-size:12px; }
   .position-columns .row b { letter-spacing:-.15px; white-space:nowrap; }
   .position-columns .fee-row { font-size:11px; }
   .position-columns .sub { font-size:12px; }
-  .section-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-  .section-head h2 { font-size:15px; margin:0; }
+  .section-head { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+  .section-head h2 { font-size:14px; letter-spacing:-.2px; margin:0; white-space:nowrap; }
   .section-head .dot { width:9px; height:9px; border-radius:50%; }
   .section-head .chip { font-size:12px; color:#6b7280; }
   .section-head .price { font-weight:600; font-size:13px; }
   .wallet-card { margin-bottom:12px; }
   .wallet-total { font-size:15px; font-weight:700; margin:4px 0 8px; }
+  .wallet-rub { color:#1f2328; font-size:12px; font-weight:600; white-space:nowrap; }
+  .section-head .wallet-rate { color:#1f2328; font-size:13px; font-weight:600; }
   .wallet-card .row { font-size:11px; }
   .wallet-label { display:flex; align-items:center; gap:5px; }
   .wallet-chain-marker { width:10px; height:10px; border-radius:3px; flex:0 0 auto; }
@@ -94,8 +97,7 @@
 
   <div class="stats">
     <div class="stat"><div class="k">Стоимость ликвидности</div><div class="v" id="statValue">—</div></div>
-    <div class="stat"><div class="k">Накоплено комиссий</div><div class="v" id="statFees">—</div></div>
-    <div class="stat"><div class="k">Награды CAKE</div><div class="v" id="statCake">—</div></div>
+    <div class="stat"><div class="k">Накоплено дохода</div><div class="v" id="statFees">—</div><div class="rate" id="statRubRate"></div></div>
     <div class="stat"><div class="k">Позиции (в диапазоне)</div><div class="v" id="statCount">—</div></div>
   </div>
 
@@ -110,6 +112,10 @@ function fmt(n, dec, max) {
 function fmtUsd(n) {
   if (!isFinite(n)) return "—";
   return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function fmtRub(n) {
+  if (!isFinite(n)) return "";
+  return "₽" + n.toLocaleString("ru-RU", { maximumFractionDigits: 0 });
 }
 function fmtSignedUsd(n) {
   const value = Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 4, minimumFractionDigits: 2 });
@@ -227,8 +233,9 @@ function renderSection(chainLabel, chainKey, positions, price) {
   </div>`;
 }
 
-function renderWalletSection(wallets) {
+function renderWalletSection(wallets, rubPerUsd) {
   const color = "#6b7280";
+  const hasRubRate = Number.isFinite(Number(rubPerUsd));
   const perWallet = new Map();
   for (const group of wallets) {
     for (const wallet of group.wallets) {
@@ -246,6 +253,7 @@ function renderWalletSection(wallets) {
     const total = wallet.balances.some((balance) => !isFinite(balance.amount))
       ? null
       : wallet.balances.reduce((sum, balance) => sum + balance.amount, 0);
+    const totalRub = total == null ? null : total * Number(rubPerUsd);
     const rows = wallet.balances.map((balance) => `
       <div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${balance.symbol}</span><b>${fmt(balance.amount, 18)} ${balance.symbol}</b></div>`).join("");
     return `
@@ -253,12 +261,12 @@ function renderWalletSection(wallets) {
         <div class="card-head"><div><span class="pair">${wallet.name || "Кошелёк"}</span></div></div>
         <div class="sub">${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}</div>
         <div class="rows">${rows}</div>
-        <div class="wallet-total">Всего: ${total == null ? "—" : `${fmt(total, 18)} USD`}</div>
+        <div class="wallet-total">Всего: ${total == null ? "—" : `${fmt(total, 18)} USD${isFinite(totalRub) ? ` <span class="wallet-rub">(${fmtRub(totalRub)})</span>` : ""}`}</div>
       </div>`;
   }).join("");
   return `
     <div class="section">
-      <div class="section-head"><span class="dot" style="background:${color}"></span><h2>Кошельки</h2></div>
+      <div class="section-head"><span class="dot" style="background:${color}"></span><h2>Кошельки</h2>${hasRubRate ? `<span class="chip wallet-rate">1 USDC = ${fmtRub(Number(rubPerUsd))}</span>` : ""}</div>
       <div class="grid">${cards}</div>
     </div>`;
 }
@@ -293,7 +301,7 @@ function renderChartsSection(charts) {
   return `<div class="section"><div class="section-head"><span class="dot" style="background:#6b7280"></span><h2>Графики</h2></div><div class="grid">${cards}</div></div>`;
 }
 
-function renderAll(positions, prices, wallets, charts) {
+function renderAll(positions, prices, wallets, charts, rubPerUsd) {
   prices = prices || {};
   const order = [["arbitrum", "Uniswap ETH/USDC"], ["avalanche", "Uniswap AVAX/USDC"], ["bsc", "PancakeSwap BNB/USDT"]];
   const groups = {};
@@ -306,13 +314,15 @@ function renderAll(positions, prices, wallets, charts) {
   for (const key of Object.keys(groups)) {
     if (!order.some((o) => o[0] === key)) columns += renderSection(key, key, groups[key], prices[key]);
   }
-  columns += renderWalletSection(wallets || []);
+  columns += renderWalletSection(wallets || [], rubPerUsd);
   columns += renderChartsSection(charts || {});
 
   document.getElementById("sections").innerHTML = `<div class="position-columns">${columns}</div>`;
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
-  document.getElementById("statFees").textContent = fmtUsd(positions.reduce((a, r) => a + r.feeUsd, 0));
-  document.getElementById("statCake").textContent = fmtUsd(positions.reduce((a, r) => a + (r.cake ? r.cake.usd : 0), 0));
+  const totalIncomeUsd = positions.reduce((sum, r) => sum + r.feeUsd + (r.cake ? r.cake.usd : 0), 0);
+  const incomeRub = Number(rubPerUsd) * totalIncomeUsd;
+  document.getElementById("statFees").textContent = `${fmtUsd(totalIncomeUsd)}${isFinite(incomeRub) ? ` (${fmtRub(incomeRub)})` : ""}`;
+  document.getElementById("statRubRate").textContent = Number.isFinite(Number(rubPerUsd)) ? `1 USDC = ${fmtRub(Number(rubPerUsd))}` : "";
   const inRange = positions.filter((r) => r.inRange).length;
   document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
   updatePositionAges();
@@ -325,7 +335,7 @@ async function refreshAll() {
     const res = await fetch("/api/positions");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    renderAll(data.positions, data.prices, data.wallets, data.charts);
+    renderAll(data.positions, data.prices, data.wallets, data.charts, data.rubPerUsd);
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
     alert("Ошибка: " + e.message);
