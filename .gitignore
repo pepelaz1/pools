@@ -3,3 +3,4 @@ wallets.json
 positions.json
 .env
 dashboard/price-cache.json
+dashboard/income-history.json

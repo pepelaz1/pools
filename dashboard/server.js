@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
 const SNAPSHOT_FILE = path.join(__dirname, "snapshot.json");
 const PRICE_CACHE_FILE = path.join(__dirname, "price-cache.json");
+const INCOME_HISTORY_FILE = path.join(__dirname, "income-history.json");
 const CHARTS = [
   {
     key: "btc",
@@ -45,12 +46,90 @@ if (fs.existsSync(PRICE_CACHE_FILE)) {
   } catch {}
 }
 
+let incomeHistory = { positions: {}, days: {} };
+if (fs.existsSync(INCOME_HISTORY_FILE)) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(INCOME_HISTORY_FILE, "utf8"));
+    if (parsed && typeof parsed === "object") incomeHistory = {
+      positions: parsed.positions || {},
+      days: parsed.days || {},
+    };
+  } catch {}
+}
+
 function saveSnapshot() {
   fs.writeFileSync(SNAPSHOT_FILE, JSON.stringify(snapshot, null, 2));
 }
 
 function savePriceCache() {
   fs.writeFileSync(PRICE_CACHE_FILE, JSON.stringify(priceCache, null, 2));
+}
+
+function saveIncomeHistory() {
+  fs.writeFileSync(INCOME_HISTORY_FILE, JSON.stringify(incomeHistory, null, 2));
+}
+
+function incomeDayKey(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tomsk", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(date);
+}
+
+function feeTokenValues(position) {
+  const price = position.currentPrice;
+  return {
+    fee0UnitUsd: position.stableIs0 ? 1 : price,
+    fee1UnitUsd: position.stableIs0 ? 1 / price : 1,
+    cakeUnitUsd: position.cake?.amount ? position.cake.usd / position.cake.amount : 0,
+  };
+}
+
+function recordIncome(positions) {
+  const day = incomeDayKey();
+  const entry = incomeHistory.days[day] ||= { incomeUsd: 0 };
+  let changed = false;
+
+  for (const position of positions) {
+    const current = {
+      fee0: position.fee0,
+      fee1: position.fee1,
+      cake: position.cake?.amount || 0,
+      ...feeTokenValues(position),
+    };
+    const previous = incomeHistory.positions[position.id];
+    let earned = 0;
+
+    if (previous) {
+      // A lower pending amount means that it was collected; only fees accrued
+      // after that collection belong to the new balance.
+      earned += (current.fee0 >= previous.fee0 ? current.fee0 - previous.fee0 : current.fee0) * current.fee0UnitUsd;
+      earned += (current.fee1 >= previous.fee1 ? current.fee1 - previous.fee1 : current.fee1) * current.fee1UnitUsd;
+      earned += (current.cake >= previous.cake ? current.cake - previous.cake : current.cake) * current.cakeUnitUsd;
+      if (Number.isFinite(earned) && earned > 0) {
+        entry.incomeUsd += earned;
+        changed = true;
+      }
+    }
+    incomeHistory.positions[position.id] = current;
+    changed = true;
+  }
+
+  const keepAfter = new Date();
+  keepAfter.setDate(keepAfter.getDate() - 30);
+  const oldest = incomeDayKey(keepAfter);
+  for (const key of Object.keys(incomeHistory.days)) {
+    if (key < oldest) delete incomeHistory.days[key];
+  }
+  if (changed) saveIncomeHistory();
+}
+
+function incomeDays(count = 14) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - index);
+    const key = incomeDayKey(date);
+    return { date: key, incomeUsd: incomeHistory.days[key]?.incomeUsd || 0 };
+  });
 }
 
 function chartProvider(chain) {
@@ -203,6 +282,7 @@ const server = http.createServer(async (req, res) => {
       const filtered = data.filter(Boolean);
       filtered.sort((a, b) => Number(b.inRange) - Number(a.inRange) || b.valueUsd - a.valueUsd);
       filtered.forEach(enrich);
+      recordIncome(filtered);
       saveSnapshot();
       sendJson(res, 200, {
         positions: filtered,
@@ -210,6 +290,7 @@ const server = http.createServer(async (req, res) => {
         wallets,
         charts: marketData.charts,
         rubPerUsd: marketData.rubPerUsd,
+        incomeDays: incomeDays(),
         updated: new Date().toISOString(),
       });
     } catch (e) {
