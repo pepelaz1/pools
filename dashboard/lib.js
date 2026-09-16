@@ -66,6 +66,15 @@ const MC_ABI = [
   "function userPositionInfos(uint256) view returns (uint256, uint256, int24, int24, uint256, uint256, address owner, uint256, uint256)",
 ];
 
+const AAVE_POOLS = {
+  arbitrum: "0x794a61358d6845594f94dc1db02a252b5b4814ad",
+  avalanche: "0x794a61358d6845594f94dc1db02a252b5b4814ad",
+  bsc: "0x6807dc923806fE8Fd134338EABCA509979a7e0cB",
+};
+const AAVE_POOL_ABI = [
+  "function getUserAccountData(address user) view returns(uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor)",
+];
+
 const COLLECT_ABI = [
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
 ];
@@ -172,11 +181,19 @@ async function getWalletBalances() {
   const entries = await Promise.all(Object.entries(CHAINS).map(async ([chain, c]) => {
     try {
       const token = new ethers.Contract(c.stableToken, ERC20_ABI, provider(chain));
+      const aave = new ethers.Contract(AAVE_POOLS[chain], AAVE_POOL_ABI, provider(chain));
       const decimals = Number(await token.decimals());
-      const balances = await Promise.all(wallets.map(async (wallet) => ({
-        ...wallet,
-        amount: Number(ethers.formatUnits(await token.balanceOf(wallet.address), decimals)),
-      })));
+      const balances = await Promise.all(wallets.map(async (wallet) => {
+        const [amountRaw, account] = await Promise.all([
+          token.balanceOf(wallet.address),
+          aave.getUserAccountData(wallet.address).catch(() => null),
+        ]);
+        return {
+          ...wallet,
+          amount: Number(ethers.formatUnits(amountRaw, decimals)),
+          healthFactor: account?.totalDebtBase > 0n ? Number(account.healthFactor) / 1e18 : null,
+        };
+      }));
       return {
         chain,
         chainLabel: c.label,
@@ -190,7 +207,7 @@ async function getWalletBalances() {
         chainLabel: c.label,
         symbol: c.stable,
         total: null,
-        wallets: wallets.map((wallet) => ({ ...wallet, amount: null })),
+        wallets: wallets.map((wallet) => ({ ...wallet, amount: null, healthFactor: null })),
       };
     }
   }));
