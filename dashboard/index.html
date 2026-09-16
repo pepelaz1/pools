@@ -46,6 +46,7 @@
   .aave-health.safe { color:#1a7f37; }
   .aave-health.watch { color:#bc4c00; }
   .aave-health.risk { color:#cf222e; }
+  .aave-inline { margin-left:4px; white-space:nowrap; }
   .chart-card { padding:10px; margin-bottom:12px; }
   .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
   .chart-head .pair { font-size:12px; }
@@ -255,24 +256,27 @@ function renderWalletSection(wallets, rubPerUsd) {
     }
   }
   const cards = [...perWallet.values()].map((wallet) => {
+    const visibleBalances = wallet.balances.filter((balance) => Number(balance.amount) !== 0 || Number(balance.healthFactor) > 0);
+    if (!visibleBalances.length) return "";
     const total = wallet.balances.some((balance) => !isFinite(balance.amount))
       ? null
       : wallet.balances.reduce((sum, balance) => sum + balance.amount, 0);
     const totalRub = total == null ? null : total * Number(rubPerUsd);
-    const rows = wallet.balances.map((balance) => {
+    const rows = visibleBalances.map((balance) => {
       const healthFactor = Number(balance.healthFactor);
       const healthClass = healthFactor >= 1.5 ? "safe" : healthFactor >= 1.1 ? "watch" : "risk";
-      const healthRow = Number.isFinite(healthFactor)
-        ? `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>Aave HF</span><b class="aave-health ${healthClass}">${fmt(healthFactor, 2)}</b></div>`
+      const healthInline = healthFactor > 0
+        ? `<span class="aave-inline">${Number(balance.amount) !== 0 ? "· " : ""}hf <b class="aave-health ${healthClass}">${fmt(healthFactor, 2)}</b></span>`
         : "";
-      return `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${balance.symbol}</span><b>${fmt(balance.amount, 18)} ${balance.symbol}</b></div>${healthRow}`;
+      const balanceValue = Number(balance.amount) !== 0 ? `<b>${fmt(balance.amount, 18)} ${balance.symbol}</b>` : "";
+      return `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${Number(balance.amount) !== 0 ? balance.symbol : ""}${healthInline}</span>${balanceValue}</div>`;
     }).join("");
     return `
       <div class="card wallet-card">
         <div class="card-head"><div><span class="pair">${wallet.name || "Кошелёк"}</span></div></div>
         <div class="sub">${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}</div>
         <div class="rows">${rows}</div>
-        <div class="wallet-total">Всего: ${total == null ? "—" : `${fmt(total, 18)} USD${isFinite(totalRub) ? ` <span class="wallet-rub">(${fmtRub(totalRub)})</span>` : ""}`}</div>
+        ${total == null ? '<div class="wallet-total">Всего: —</div>' : total !== 0 ? `<div class="wallet-total">Всего: ${fmt(total, 18)} USD${isFinite(totalRub) ? ` <span class="wallet-rub">(${fmtRub(totalRub)})</span>` : ""}</div>` : ""}
       </div>`;
   }).join("");
   return `
