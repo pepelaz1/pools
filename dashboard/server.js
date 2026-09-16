@@ -58,6 +58,36 @@ function chartProvider(chain) {
   return chartProviders[chain];
 }
 
+async function readDexSpot(chart) {
+  const chain = CHAINS[chart.chain];
+  const p = chartProvider(chart.chain);
+  const factory = new ethers.Contract(chain.factory, FACTORY_ABI, p);
+  const poolAddress = await factory.getPool(chart.token, chart.stable, chart.fee);
+  if (poolAddress === ethers.ZeroAddress) throw new Error("пул не найден");
+
+  const pool = new ethers.Contract(poolAddress, POOL_ABI, p);
+  const [token0, slot0] = await Promise.all([pool.token0(), pool.slot0()]);
+  const token1 = token0.toLowerCase() === chart.token.toLowerCase() ? chart.stable : chart.token;
+  const [dec0, dec1] = await Promise.all([
+    new ethers.Contract(token0, ERC20_ABI, p).decimals(),
+    new ethers.Contract(token1, ERC20_ABI, p).decimals(),
+  ]);
+  const token1PerToken0 = (Number(slot0.sqrtPriceX96) / 2 ** 96) ** 2 * Math.pow(10, Number(dec0) - Number(dec1));
+  return token0.toLowerCase() === chart.token.toLowerCase() ? token1PerToken0 : 1 / token1PerToken0;
+}
+
+async function refreshChartSpots(charts) {
+  await Promise.all(CHARTS.map(async (chart) => {
+    try {
+      const points = charts[chart.key]?.prices;
+      const price = await readDexSpot(chart);
+      if (points?.length && Number.isFinite(price) && price > 0) points[points.length - 1] = [Date.now(), price];
+    } catch {
+      // Keep the latest cached point if the RPC is temporarily unavailable.
+    }
+  }));
+}
+
 async function readDexChart(chart) {
   const chain = CHAINS[chart.chain];
   const p = chartProvider(chart.chain);
@@ -66,7 +96,7 @@ async function readDexChart(chart) {
   if (poolAddress === ethers.ZeroAddress) throw new Error("пул не найден");
 
   const pool = new ethers.Contract(poolAddress, POOL_ABI, p);
-  const [token0, latestBlock] = await Promise.all([pool.token0(), p.getBlock("latest")]);
+  const [token0, latestBlock, slot0] = await Promise.all([pool.token0(), p.getBlock("latest"), pool.slot0()]);
   const token1 = token0.toLowerCase() === chart.token.toLowerCase() ? chart.stable : chart.token;
   const [dec0, dec1] = await Promise.all([
     new ethers.Contract(token0, ERC20_ABI, p).decimals(),
@@ -102,11 +132,16 @@ async function readDexChart(chart) {
     const price = tokenIs0 ? token1PerToken0 : 1 / token1PerToken0;
     if (Number.isFinite(price) && price > 0) prices.push([now - secondsAgos[index + 1] * 1_000, price]);
   }
+  const spotToken1PerToken0 = (Number(slot0.sqrtPriceX96) / 2 ** 96) ** 2 * Math.pow(10, Number(dec0) - Number(dec1));
+  const spotPrice = tokenIs0 ? spotToken1PerToken0 : 1 / spotToken1PerToken0;
+  if (prices.length === 1) prices.unshift([now - historySeconds * 1_000, prices[0][1]]);
+  if (prices.length && Number.isFinite(spotPrice) && spotPrice > 0) prices[prices.length - 1] = [now, spotPrice];
   return { pair: chart.pair, color: chart.color, prices, durationHours: historySeconds / 3_600 };
 }
 
 async function getMarketData() {
-  if (priceCache?.source === "dex-twap-v2" && priceCache.updated && Date.now() - priceCache.updated < 15 * 60 * 1000 && Number.isFinite(priceCache.rubPerUsd)) {
+  if (priceCache?.source === "dex-twap-v3" && priceCache.updated && Date.now() - priceCache.updated < 15 * 60 * 1000 && Number.isFinite(priceCache.rubPerUsd)) {
+    await refreshChartSpots(priceCache.charts);
     return { charts: priceCache.charts, rubPerUsd: priceCache.rubPerUsd };
   }
 
@@ -129,7 +164,7 @@ async function getMarketData() {
       .catch(() => null),
   ]);
 
-  priceCache = { source: "dex-twap-v2", updated: Date.now(), charts: Object.fromEntries(entries), rubPerUsd };
+  priceCache = { source: "dex-twap-v3", updated: Date.now(), charts: Object.fromEntries(entries), rubPerUsd };
   savePriceCache();
   return { charts: priceCache.charts, rubPerUsd };
 }
