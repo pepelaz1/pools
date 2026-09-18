@@ -31,6 +31,10 @@ const ERC20_ABI = [
   "function approve(address,uint256) returns (bool)",
 ];
 
+const WBNB_ABI = [
+  "function deposit() payable",
+];
+
 const ROUTER_ABI = [
   "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) external payable returns (uint256 amountOut)",
 ];
@@ -84,20 +88,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function swapWithRetries({ router, quoter, wallet, amountIn }) {
+async function swapWithRetries({ router, quoter, wallet, amountIn, tokenIn = CFG.usdt, tokenOut = CFG.wbnb }) {
   let lastError;
   for (let attempt = 1; attempt <= TX_ATTEMPTS; attempt += 1) {
     try {
       const quote = await quoter.quoteExactInputSingle.staticCall({
-        tokenIn: CFG.usdt,
-        tokenOut: CFG.wbnb,
+        tokenIn,
+        tokenOut,
         amountIn,
         fee: CFG.fee,
         sqrtPriceLimitX96: 0,
       });
       const params = {
-        tokenIn: CFG.usdt,
-        tokenOut: CFG.wbnb,
+        tokenIn,
+        tokenOut,
         fee: CFG.fee,
         recipient: wallet.address,
         amountIn,
@@ -186,6 +190,11 @@ async function stakeWithRetries(pm, walletAddress, tokenId) {
 
 function parseArgs() {
   const args = process.argv.slice(2).filter((a) => a !== "--dry-run");
+  const fromBnb = args.includes("--from-bnb");
+  if (fromBnb) args.splice(args.indexOf("--from-bnb"), 1);
+  const keepBnbFlag = args.indexOf("--keep-bnb");
+  const keepBnb = keepBnbFlag === -1 ? 0.01 : parseFloat(args[keepBnbFlag + 1]);
+  if (keepBnbFlag !== -1) args.splice(keepBnbFlag, 2);
   const walletFlag = args.indexOf("--wallet");
   if (walletFlag === -1 || !args[walletFlag + 1]) {
     console.log("укажите кошелёк: --wallet <имя|адрес>");
@@ -196,8 +205,9 @@ function parseArgs() {
   args.splice(walletFlag, 2);
 
   if (args.length < 3) {
-    console.log("использование: node open-position.js [--dry-run] --wallet <имя|адрес> <цена от> <цена до> <сумма USDT>");
+    console.log("использование: node open-position.js [--dry-run] [--from-bnb] [--keep-bnb <BNB>] --wallet <имя|адрес> <цена от> <цена до> <сумма>");
     console.log("пример: node open-position.js --wallet 697e 680 730 500");
+    console.log("        node open-position.js --from-bnb --wallet 697e 680 730 0.35");
     console.log("        node open-position.js --dry-run --wallet 697e 680 730 1");
     process.exit(1);
   }
@@ -206,6 +216,14 @@ function parseArgs() {
   const priceTo = parseFloat(args[1]);
   const amountUsd = parseFloat(args[2]);
 
+  if (!Number.isFinite(keepBnb) || keepBnb < 0) {
+    console.log("--keep-bnb должен быть неотрицательным числом");
+    process.exit(1);
+  }
+  if (!Number.isFinite(priceFrom) || !Number.isFinite(priceTo) || !Number.isFinite(amountUsd) || amountUsd <= 0) {
+    console.log("цены и сумма должны быть положительными числами");
+    process.exit(1);
+  }
   if (priceFrom >= priceTo) {
     console.log("цена 'от' должна быть меньше цены 'до'");
     process.exit(1);
@@ -214,7 +232,7 @@ function parseArgs() {
   const tickLower = priceToTick(1 / priceTo);
   const tickUpper = priceToTick(1 / priceFrom);
 
-  return { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector };
+  return { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector, fromBnb, keepBnb };
 }
 
 function savePosition(address, tokenId, opened) {
@@ -237,7 +255,7 @@ function savePosition(address, tokenId, opened) {
 let wallet;
 
 async function main() {
-  const { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector } = parseArgs();
+  const { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector, fromBnb, keepBnb } = parseArgs();
 
   const password = await promptHidden("мастер-пароль: ");
   const walletsRaw = JSON.parse(fs.readFileSync(KEYSTORE, "utf8"));
@@ -255,14 +273,15 @@ async function main() {
   console.log(`кошелёк: ${wallet.address}`);
   console.log(`диапазон: $${priceFrom} - $${priceTo}`);
   console.log(`тики: [${tickLower}, ${tickUpper}]`);
-  console.log(`сумма: ${amountUsd} USDT`);
+  console.log(`сумма: ${amountUsd} ${fromBnb ? "BNB" : "USDT"}`);
+  if (fromBnb) console.log(`остаток BNB: ${keepBnb} BNB`);
 
   const [t0, t1] = CFG.usdt.toLowerCase() < CFG.wbnb.toLowerCase()
     ? [CFG.usdt, CFG.wbnb]
     : [CFG.wbnb, CFG.usdt];
   const usdtIs0 = CFG.usdt.toLowerCase() === t0.toLowerCase();
 
-  const amountIn = ethers.parseUnits(amountUsd.toString(), 18);
+  let amountIn = ethers.parseUnits(amountUsd.toString(), 18);
 
   // проверки балансов
   const usdtC = new ethers.Contract(CFG.usdt, ERC20_ABI, wallet);
@@ -277,11 +296,23 @@ async function main() {
   console.log(`  WBNB: ${ethers.formatUnits(wbnbBal, 18)}`);
   console.log(`  BNB: ${ethers.formatEther(bnbBal)}`);
 
-  if (usdtBal < amountIn) {
+  if (!fromBnb && usdtBal < amountIn) {
     console.log(`\nнедостаточно USDT (нужно ${amountUsd}, есть ${ethers.formatUnits(usdtBal, 18)})`);
     process.exit(1);
   }
-  if (bnbBal < ethers.parseEther("0.005")) {
+  const bnbReserve = ethers.parseEther((fromBnb ? Math.max(keepBnb, 0.005) : 0.005).toString());
+  if (fromBnb) {
+    const availableBnb = bnbBal > bnbReserve ? bnbBal - bnbReserve : 0n;
+    if (availableBnb === 0n) {
+      console.log(`\nнедостаточно BNB: нужен резерв ${ethers.formatEther(bnbReserve)} BNB на кошельке`);
+      process.exit(1);
+    }
+    if (amountIn > availableBnb) {
+      console.log(`\nдля ликвидности доступно ${ethers.formatEther(availableBnb)} BNB; оставляю ${ethers.formatEther(bnbReserve)} BNB резерв`);
+      amountIn = availableBnb;
+    }
+  }
+  if (bnbBal < bnbReserve) {
     console.log("\nнедостаточно BNB на газ");
     process.exit(1);
   }
@@ -300,30 +331,34 @@ async function main() {
 
   const quoter = new ethers.Contract("0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997", QUOTER_ABI, provider);
 
-  // Find a token ratio that uses the whole USDT budget in the concentrated range.
+  // Find a token ratio that uses the whole USDT or BNB budget in the concentrated range.
   const currentTick = Number(slot0.tick);
 
   let usdtAmount, wbnbAmount, swapAmountIn;
 
   if (currentTick < tickLower) {
     // Below the range the position contains only token0 (USDT).
-    usdtAmount = amountIn;
-    swapAmountIn = 0n;
+    usdtAmount = fromBnb ? 0n : amountIn;
+    swapAmountIn = fromBnb ? amountIn : 0n;
     wbnbAmount = 0n;
     console.log(`\nтекущий тик ${currentTick} < ${tickLower} (ниже диапазона)`);
     console.log(`  позиция = 100% USDT`);
   } else if (currentTick >= tickUpper) {
     // Above the range the position contains only token1 (WBNB).
     usdtAmount = 0n;
-    swapAmountIn = amountIn;
-    const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
-      tokenIn: CFG.usdt,
-      tokenOut: CFG.wbnb,
-      amountIn: swapAmountIn,
-      fee: CFG.fee,
-      sqrtPriceLimitX96: 0,
-    });
-    wbnbAmount = wbnbQuoteRes.amountOut;
+    swapAmountIn = fromBnb ? 0n : amountIn;
+    if (fromBnb) {
+      wbnbAmount = amountIn;
+    } else {
+      const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
+        tokenIn: CFG.usdt,
+        tokenOut: CFG.wbnb,
+        amountIn: swapAmountIn,
+        fee: CFG.fee,
+        sqrtPriceLimitX96: 0,
+      });
+      wbnbAmount = wbnbQuoteRes.amountOut;
+    }
     console.log(`\nтекущий тик ${currentTick} >= ${tickUpper} (выше диапазона)`);
     console.log(`  позиция = 100% WBNB`);
   } else {
@@ -346,34 +381,40 @@ async function main() {
     // The swap changes the pool price, so use Quoter's post-swap price for each candidate ratio.
     for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
       const candidateSwap = (low + high) / 2n;
-      const candidateUsdt = amountIn - candidateSwap;
+      const candidateUsdt = fromBnb ? 0n : amountIn - candidateSwap;
       const quote = candidateSwap === 0n
         ? { amountOut: 0n, sqrtPriceX96After: slot0.sqrtPriceX96 }
         : await quoter.quoteExactInputSingle.staticCall({
-          tokenIn: CFG.usdt,
-          tokenOut: CFG.wbnb,
+          tokenIn: fromBnb ? CFG.wbnb : CFG.usdt,
+          tokenOut: fromBnb ? CFG.usdt : CFG.wbnb,
           amountIn: candidateSwap,
           fee: CFG.fee,
           sqrtPriceLimitX96: 0,
         });
-      const required = requiredWbnb(candidateUsdt, quote.sqrtPriceX96After);
-      if (quote.amountOut >= required) high = candidateSwap;
+      const required = requiredWbnb(fromBnb ? quote.amountOut : candidateUsdt, quote.sqrtPriceX96After);
+      const enoughWbnb = fromBnb ? amountIn - candidateSwap <= required : quote.amountOut >= required;
+      if (enoughWbnb) high = candidateSwap;
       else low = candidateSwap + 1n;
     }
 
     swapAmountIn = high;
-    usdtAmount = amountIn - swapAmountIn;
+    usdtAmount = fromBnb ? 0n : amountIn - swapAmountIn;
     const wbnbQuoteRes = await quoter.quoteExactInputSingle.staticCall({
-      tokenIn: CFG.usdt,
-      tokenOut: CFG.wbnb,
+      tokenIn: fromBnb ? CFG.wbnb : CFG.usdt,
+      tokenOut: fromBnb ? CFG.usdt : CFG.wbnb,
       amountIn: swapAmountIn,
       fee: CFG.fee,
       sqrtPriceLimitX96: 0,
     });
-    wbnbAmount = wbnbQuoteRes.amountOut;
+    if (fromBnb) {
+      usdtAmount = wbnbQuoteRes.amountOut;
+      wbnbAmount = amountIn - swapAmountIn;
+    } else {
+      wbnbAmount = wbnbQuoteRes.amountOut;
+    }
 
     console.log(`\nтекущий тик ${currentTick} в диапазоне [${tickLower}, ${tickUpper}]`);
-    console.log(`  подобрана пропорция для полного использования USDT`);
+    console.log(`  подобрана пропорция для полного использования ${fromBnb ? "BNB" : "USDT"}`);
   }
 
   console.log(`  USDT (token0): ${ethers.formatUnits(usdtAmount, 18)}`);
@@ -384,16 +425,16 @@ async function main() {
     return;
   }
 
-  // 1. approve USDT для swapRouter И positionManager
-  const currentAllowanceSwap = await usdtC.allowance(wallet.address, CFG.swapRouter);
-  if (currentAllowanceSwap < amountIn) {
-    console.log("\n1. approve USDT для swapRouter...");
-    await (await usdtC.approve(CFG.swapRouter, ethers.MaxUint256)).wait();
+  // 1. approvals for the token used by the swap and both position tokens.
+  const routerInputToken = fromBnb ? wbnbC : usdtC;
+  const currentAllowanceSwap = await routerInputToken.allowance(wallet.address, CFG.swapRouter);
+  if (currentAllowanceSwap < swapAmountIn) {
+    console.log(`\n1. approve ${fromBnb ? "WBNB" : "USDT"} для swapRouter...`);
+    await (await routerInputToken.approve(CFG.swapRouter, ethers.MaxUint256)).wait();
     console.log("   approve ok");
   }
-
   const currentAllowancePM = await usdtC.allowance(wallet.address, CFG.positionManager);
-  if (currentAllowancePM < amountIn) {
+  if (fromBnb || currentAllowancePM < usdtAmount) {
     console.log("   approve USDT для positionManager...");
     await (await usdtC.approve(CFG.positionManager, ethers.MaxUint256)).wait();
     console.log("   approve ok");
@@ -401,30 +442,56 @@ async function main() {
 
   // 1b. approve WBNB для positionManager
   const wbnbAllowance = await wbnbC.allowance(wallet.address, CFG.positionManager);
-  if (wbnbAllowance < ethers.parseUnits("1", 18)) {
+  if (wbnbAllowance < wbnbAmount) {
     console.log("   approve WBNB для positionManager...");
     await (await wbnbC.approve(CFG.positionManager, ethers.MaxUint256)).wait();
     console.log("   approve ok");
   }
 
-  // swap USDT -> WBNB
+  // Wrap exactly the BNB allocated to this position, then swap only its required share.
   let wbnbReceived = 0n;
+  let usdtReceived = usdtAmount;
+  if (fromBnb) {
+    console.log("\n2. заворачиваю BNB -> WBNB...");
+    const wbnbBeforeWrap = await wbnbC.balanceOf(wallet.address);
+    const wrapTx = await new ethers.Contract(CFG.wbnb, WBNB_ABI, wallet).deposit({ value: amountIn });
+    console.log(`   tx: ${wrapTx.hash}`);
+    await wrapTx.wait();
+    const wrapped = (await wbnbC.balanceOf(wallet.address)) - wbnbBeforeWrap;
+    if (wrapped < amountIn) throw new Error("не удалось завернуть указанную сумму BNB");
+    wbnbReceived = amountIn - swapAmountIn;
+  }
+
+  // Swap only the planned part of the selected budget.
   if (swapAmountIn > 0n) {
-    console.log("\n2. свап USDT -> WBNB...");
-    const wbnbBefore = await wbnbC.balanceOf(wallet.address);
+    console.log(`\n${fromBnb ? "3" : "2"}. свап ${fromBnb ? "WBNB -> USDT" : "USDT -> WBNB"}...`);
+    const outputToken = fromBnb ? usdtC : wbnbC;
+    const outputBefore = await outputToken.balanceOf(wallet.address);
     const router = new ethers.Contract(CFG.swapRouter, ROUTER_ABI, wallet);
-    await swapWithRetries({ router, quoter, wallet, amountIn: swapAmountIn });
-    const wbnbAfter = await wbnbC.balanceOf(wallet.address);
-    wbnbReceived = wbnbAfter - wbnbBefore;
-    console.log(`   получено: ${ethers.formatUnits(wbnbReceived, 18)} WBNB`);
+    await swapWithRetries({
+      router,
+      quoter,
+      wallet,
+      amountIn: swapAmountIn,
+      tokenIn: fromBnb ? CFG.wbnb : CFG.usdt,
+      tokenOut: fromBnb ? CFG.usdt : CFG.wbnb,
+    });
+    const received = (await outputToken.balanceOf(wallet.address)) - outputBefore;
+    if (fromBnb) {
+      usdtReceived = received;
+      console.log(`   получено: ${ethers.formatUnits(usdtReceived, 18)} USDT`);
+    } else {
+      wbnbReceived = received;
+      console.log(`   получено: ${ethers.formatUnits(wbnbReceived, 18)} WBNB`);
+    }
   } else {
-    console.log("\n2. свап USDT -> WBNB не нужен");
+    console.log(`\n${fromBnb ? "3" : "2"}. свап не нужен`);
   }
 
   // 3. mint position
   console.log("\n3. создаю позицию...");
-  const amount0Desired = usdtIs0 ? usdtAmount : wbnbReceived;
-  const amount1Desired = usdtIs0 ? wbnbReceived : usdtAmount;
+  const amount0Desired = usdtIs0 ? usdtReceived : wbnbReceived;
+  const amount1Desired = usdtIs0 ? wbnbReceived : usdtReceived;
   console.log(`   desired: amount0=${ethers.formatUnits(amount0Desired, 18)}, amount1=${ethers.formatUnits(amount1Desired, 18)}`);
 
   const pm = new ethers.Contract(CFG.positionManager, PM_ABI, wallet);
@@ -478,7 +545,7 @@ async function main() {
 
   // The price can move between the swap and mint; use the small leftover before staking the NFT.
   const residualUsd = amountUsd - initialValueUsd;
-  if (residualUsd > 0.05 && Number(openingSlot0.tick) >= tickLower && Number(openingSlot0.tick) < tickUpper) {
+  if (!fromBnb && residualUsd > 0.05 && Number(openingSlot0.tick) >= tickLower && Number(openingSlot0.tick) < tickUpper) {
     try {
       const sqrtPrice = Number(openingSlot0.sqrtPriceX96) / 2 ** 96;
       const sqrtLower = Math.pow(1.0001, tickLower / 2);

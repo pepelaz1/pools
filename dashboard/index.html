@@ -247,10 +247,15 @@ function renderSection(chainLabel, chainKey, positions, price) {
   </div>`;
 }
 
-function renderWalletSection(wallets, rubPerUsd) {
+function renderWalletSection(wallets, rubPerUsd, positions) {
   const color = "#6b7280";
   const hasRubRate = Number.isFinite(Number(rubPerUsd));
   const perWallet = new Map();
+  const positionCounts = new Map();
+  for (const position of positions || []) {
+    const key = position.address.toLowerCase();
+    positionCounts.set(key, (positionCounts.get(key) || 0) + 1);
+  }
   for (const group of wallets) {
     for (const wallet of group.wallets) {
       const key = wallet.address.toLowerCase();
@@ -266,12 +271,13 @@ function renderWalletSection(wallets, rubPerUsd) {
   }
   const cards = [...perWallet.values()].map((wallet) => {
     const visibleBalances = wallet.balances.filter((balance) => Number(balance.amount) !== 0 || Number(balance.healthFactor) > 0);
-    if (!visibleBalances.length) return "";
+    const positionCount = positionCounts.get(wallet.address.toLowerCase()) || 0;
+    if (!visibleBalances.length && !positionCount) return "";
     const total = wallet.balances.some((balance) => !isFinite(balance.amount))
       ? null
       : wallet.balances.reduce((sum, balance) => sum + balance.amount, 0);
     const totalRub = total == null ? null : total * Number(rubPerUsd);
-    const rows = visibleBalances.map((balance) => {
+    const balanceRows = visibleBalances.map((balance) => {
       const healthFactor = Number(balance.healthFactor);
       const healthClass = healthFactor >= 1.5 ? "safe" : healthFactor >= 1.1 ? "watch" : "risk";
       const healthInline = healthFactor > 0
@@ -280,12 +286,13 @@ function renderWalletSection(wallets, rubPerUsd) {
       const balanceValue = Number(balance.amount) !== 0 ? `<b>${fmt(balance.amount, 18)} ${balance.symbol}</b>` : "";
       return `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${Number(balance.amount) !== 0 ? balance.symbol : ""}${healthInline}</span>${balanceValue}</div>`;
     }).join("");
+    const rows = `${balanceRows}${positionCount ? `<div class="row"><span>LP-позиции</span><b>${positionCount}</b></div>` : ""}`;
     return `
       <div class="card wallet-card">
         <div class="card-head"><div><span class="pair">${wallet.name || "Кошелёк"}</span></div></div>
         <div class="sub">${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}</div>
         <div class="rows">${rows}</div>
-        ${total == null ? '<div class="wallet-total">Всего: —</div>' : total !== 0 ? `<div class="wallet-total">Всего: ${fmt(total, 18)} USD${isFinite(totalRub) ? ` <span class="wallet-rub">(${fmtRub(totalRub)})</span>` : ""}</div>` : ""}
+        ${total == null ? '<div class="wallet-total">Всего: —</div>' : total !== 0 ? `<div class="wallet-total">Всего: ${fmt(total, 18)} USD${isFinite(totalRub) ? ` <span class="wallet-rub">(${fmtRub(totalRub)})</span>` : ""}</div>` : positionCount ? '<div class="wallet-total">Всего: 0 USD</div>' : ""}
       </div>`;
   }).join("");
   return `
@@ -349,7 +356,7 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays) {
   for (const key of Object.keys(groups)) {
     if (!order.some((o) => o[0] === key)) columns += renderSection(key, key, groups[key], prices[key]);
   }
-  columns += renderWalletSection(wallets || [], rubPerUsd);
+  columns += renderWalletSection(wallets || [], rubPerUsd, positions);
   columns += renderChartsSection(charts || {});
 
   document.getElementById("sections").innerHTML = `<div class="position-columns">${columns}</div>`;
