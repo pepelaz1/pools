@@ -29,6 +29,7 @@ const ROUTER_ABI = [
 ];
 const PM_ABI = [
   "function mint(tuple(address token0,address token1,uint24 fee,int24 tickLower,int24 tickUpper,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address recipient,uint256 deadline) params) returns(uint256 tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
+  "function increaseLiquidity(tuple(uint256 tokenId,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,uint256 deadline) params) returns(uint128 liquidity,uint256 amount0,uint256 amount1)",
   "event IncreaseLiquidity(uint256 indexed tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
 ];
 
@@ -154,6 +155,20 @@ async function main() {
   const quoteNative = async (stableIn) => (await quoter.quoteExactInputSingle.staticCall({
     tokenIn: cfg.stable, tokenOut: cfg.native, amountIn: stableIn, fee: cfg.defaultFee, sqrtPriceLimitX96: 0,
   }))[0];
+  const requiredNativeForTopUp = (stableAmount, sqrtPriceX96) => {
+    const sqrtLower = Math.pow(1.0001, tickLower / 2);
+    const sqrtUpper = Math.pow(1.0001, tickUpper / 2);
+    const sqrtPrice = Number(sqrtPriceX96) / 2 ** 96;
+    if (sqrtPrice <= sqrtLower) return 0n;
+    if (sqrtPrice >= sqrtUpper) return ethers.MaxUint256;
+    const token1PerToken0 = (sqrtPrice - sqrtLower) / (1 / sqrtPrice - 1 / sqrtUpper);
+    const nativePerStable = stableIs0
+      ? token1PerToken0 * Math.pow(10, stableDec - nativeDec)
+      : Math.pow(10, stableDec - nativeDec) / token1PerToken0;
+    return ethers.parseUnits(
+      (Number(ethers.formatUnits(stableAmount, stableDec)) * nativePerStable).toFixed(nativeDec), nativeDec,
+    );
+  };
 
   const stableIsToken0 = stableIs0;
   const nativeOnly = (currentTick < tickLower && !stableIsToken0) || (currentTick >= tickUpper && stableIsToken0);
@@ -252,9 +267,101 @@ async function main() {
     }
   });
   const actual = increase ? pm.interface.parseLog(increase).args : preview;
-  const [openingSlot0, amount0Raw, amount1Raw] = await Promise.all([pool.slot0(), actual.amount0, actual.amount1]);
   const dec0 = stableIs0 ? stableDec : nativeDec;
   const dec1 = stableIs0 ? nativeDec : stableDec;
+  let amount0Raw = actual.amount0;
+  let amount1Raw = actual.amount1;
+  const stableUsed = stableIs0 ? amount0Raw : amount1Raw;
+  const nativeUsed = stableIs0 ? amount1Raw : amount0Raw;
+  const stableLeft = stableToMint - stableUsed;
+  const nativeLeft = nativeReceived - nativeUsed;
+
+  // Price can shift between quoting, swapping and minting. Reinvest only leftovers
+  // produced by this opening operation; existing wallet balances stay untouched.
+  const stableDust = 10n ** BigInt(Math.max(0, stableDec - 4));
+  const nativeDust = 10n ** BigInt(Math.max(0, nativeDec - 6));
+  let topUpStable = stableLeft;
+  let topUpNative = nativeLeft;
+  const topUpSlot0 = await pool.slot0();
+  const topUpTick = Number(topUpSlot0.tick);
+  if ((topUpStable > stableDust || topUpNative > nativeDust) && topUpTick >= tickLower && topUpTick < tickUpper) {
+    try {
+      const quoteToken = async (tokenIn, tokenOut, amountIn) => quoter.quoteExactInputSingle.staticCall({
+        tokenIn, tokenOut, amountIn, fee: cfg.defaultFee, sqrtPriceLimitX96: 0,
+      });
+      const requiredAtCurrentPrice = requiredNativeForTopUp(topUpStable, topUpSlot0.sqrtPriceX96);
+      const router = new ethers.Contract(cfg.swapRouter, ROUTER_ABI, wallet);
+
+      if (topUpNative > requiredAtCurrentPrice + nativeDust) {
+        // The mint left excess native token. Swap only enough of that excess to reach the LP ratio.
+        let low = 0n;
+        let high = topUpNative;
+        for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
+          const candidate = (low + high) / 2n;
+          const quote = candidate === 0n ? { 0: 0n, 1: topUpSlot0.sqrtPriceX96 } : await quoteToken(cfg.native, cfg.stable, candidate);
+          const required = requiredNativeForTopUp(topUpStable + quote[0], quote[1]);
+          if (topUpNative - candidate <= required) high = candidate;
+          else low = candidate + 1n;
+        }
+        if (high > 0n) {
+          if (await native.allowance(wallet.address, cfg.swapRouter) < high) await (await native.approve(cfg.swapRouter, ethers.MaxUint256)).wait();
+          const before = await stable.balanceOf(wallet.address);
+          const quote = await quoteToken(cfg.native, cfg.stable, high);
+          await (await router.exactInputSingle({ tokenIn: cfg.native, tokenOut: cfg.stable, fee: cfg.defaultFee, recipient: wallet.address, amountIn: high, amountOutMinimum: quote[0] * BigInt(10000 - SLIPPAGE_BPS) / 10000n, sqrtPriceLimitX96: 0 })).wait();
+          topUpNative -= high;
+          topUpStable += (await stable.balanceOf(wallet.address)) - before;
+        }
+      } else if (topUpNative + nativeDust < requiredAtCurrentPrice && topUpStable > stableDust) {
+        // The mint left excess stable token. Mirror the initial balancing step for this residual.
+        let low = 0n;
+        let high = topUpStable;
+        for (let attempt = 0; attempt < 24 && low < high; attempt += 1) {
+          const candidate = (low + high) / 2n;
+          const quote = candidate === 0n ? { 0: 0n, 1: topUpSlot0.sqrtPriceX96 } : await quoteToken(cfg.stable, cfg.native, candidate);
+          const required = requiredNativeForTopUp(topUpStable - candidate, quote[1]);
+          if (topUpNative + quote[0] >= required) high = candidate;
+          else low = candidate + 1n;
+        }
+        if (high > 0n) {
+          const before = await native.balanceOf(wallet.address);
+          const quote = await quoteToken(cfg.stable, cfg.native, high);
+          await (await router.exactInputSingle({ tokenIn: cfg.stable, tokenOut: cfg.native, fee: cfg.defaultFee, recipient: wallet.address, amountIn: high, amountOutMinimum: quote[0] * BigInt(10000 - SLIPPAGE_BPS) / 10000n, sqrtPriceLimitX96: 0 })).wait();
+          topUpStable -= high;
+          topUpNative += (await native.balanceOf(wallet.address)) - before;
+        }
+      }
+
+      if (topUpStable <= stableDust || topUpNative <= nativeDust) throw new Error("остатка недостаточно для второй стороны диапазона");
+      console.log(`докладываю остаток: ${ethers.formatUnits(topUpStable, stableDec)} ${cfg.stableName} + ${ethers.formatUnits(topUpNative, nativeDec)} ${cfg.nativeName}`);
+      const increaseParams = {
+        tokenId,
+        amount0Desired: stableIs0 ? topUpStable : topUpNative,
+        amount1Desired: stableIs0 ? topUpNative : topUpStable,
+        amount0Min: 0,
+        amount1Min: 0,
+        deadline: Math.floor(Date.now() / 1000) + 1800,
+      };
+      const increasePreview = await pm.increaseLiquidity.staticCall(increaseParams);
+      const increaseTx = await pm.increaseLiquidity(increaseParams);
+      const increaseReceipt = await increaseTx.wait();
+      const increaseLog = increaseReceipt.logs.find((entry) => {
+        try {
+          return entry.address.toLowerCase() === cfg.positionManager.toLowerCase()
+            && pm.interface.parseLog(entry)?.name === "IncreaseLiquidity";
+        } catch {
+          return false;
+        }
+      });
+      const added = increaseLog ? pm.interface.parseLog(increaseLog).args : increasePreview;
+      amount0Raw += added.amount0;
+      amount1Raw += added.amount1;
+      console.log("остаток довнесён");
+    } catch (error) {
+      console.log(`остаток не довнесён: ${error.shortMessage || error.message}`);
+    }
+  }
+
+  const openingSlot0 = await pool.slot0();
   const amount0 = Number(ethers.formatUnits(amount0Raw, dec0));
   const amount1 = Number(ethers.formatUnits(amount1Raw, dec1));
   const openingPrice = (Number(openingSlot0.sqrtPriceX96) / 2 ** 96) ** 2 * Math.pow(10, dec0 - dec1);
