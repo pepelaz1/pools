@@ -19,7 +19,7 @@ const CHAINS = {
   },
   avalanche: {
     label: "Avalanche",
-    rpc: process.env.RPC_AVALANCHE || "https://api.avax.network/ext/bc/C/rpc",
+    rpc: process.env.RPC_AVALANCHE || "https://avalanche-c-chain-rpc.publicnode.com",
     nfpm: "0x655C406EBFa14EE2006250925e54ec43AD184f8B",
     factory: "0x740b1c1de25031C31FF4fC9A62f554A55cdC1baD",
     stable: "USDC",

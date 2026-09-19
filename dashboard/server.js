@@ -274,7 +274,15 @@ const server = http.createServer(async (req, res) => {
     try {
       const items = collectItems();
       const [data, prices, wallets, marketData] = await Promise.all([
-        Promise.all(items.map((it) => readPosition(it))),
+        Promise.all(items.map(async (item) => {
+          try {
+            return await readPosition(item);
+          } catch (error) {
+            // A temporary RPC failure must not hide positions from other networks.
+            console.warn(`Не удалось обновить ${item.id}: ${error.shortMessage || error.message}`);
+            return null;
+          }
+        })),
         getPrices(),
         getWalletBalances(),
         getMarketData(),
