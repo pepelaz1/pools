@@ -86,7 +86,9 @@ async function main() {
   const nativeDelta = (await native.balanceOf(wallet.address)) - nativeBefore;
   if (nativeDelta > 0n) {
     console.log(`swap ${cfg.nativeName} -> ${cfg.stableName}...`);
-    if (await native.allowance(wallet.address, cfg.swapRouter) < nativeDelta) await (await native.approve(cfg.swapRouter, ethers.MaxUint256)).wait();
+    if (await native.allowance(wallet.address, cfg.swapRouter) < nativeDelta) {
+      await (await native.approve(cfg.swapRouter, nativeDelta)).wait();
+    }
     const quoter = new ethers.Contract(cfg.quoter, QUOTER_ABI, provider);
     let minimum = 0n;
     try {
@@ -94,7 +96,12 @@ async function main() {
       minimum = (quote[0] * 9900n) / 10000n;
     } catch {}
     const router = new ethers.Contract(cfg.swapRouter, ROUTER_ABI, wallet);
-    await (await router.exactInputSingle({ tokenIn: cfg.native, tokenOut: cfg.stable, fee: pos.fee, recipient: wallet.address, amountIn: nativeDelta, amountOutMinimum: minimum, sqrtPriceLimitX96: 0 })).wait();
+    const swapParams = { tokenIn: cfg.native, tokenOut: cfg.stable, fee: pos.fee, recipient: wallet.address, amountIn: nativeDelta, amountOutMinimum: minimum, sqrtPriceLimitX96: 0 };
+    await router.exactInputSingle.staticCall(swapParams);
+    const gas = await router.exactInputSingle.estimateGas(swapParams);
+    const tx = await router.exactInputSingle(swapParams, { gasLimit: gas * 120n / 100n });
+    console.log(`swap tx: ${tx.hash}`);
+    await tx.wait();
   }
   try {
     await (await pm.burn(tokenId)).wait();

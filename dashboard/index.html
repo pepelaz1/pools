@@ -24,13 +24,13 @@
   .stat .rate { color:#6b7280; font-size:10px; margin-top:2px; }
   .income-content { display:flex; align-items:center; gap:14px; margin-top:3px; }
   .income-total { flex:0 0 auto; }
-  .daily-income { display:flex; align-items:flex-end; justify-content:space-between; gap:5px; height:50px; flex:1 1 auto; min-width:0; }
+  .daily-income { display:flex; align-items:flex-end; justify-content:flex-start; gap:1px; height:54px; flex:1 1 auto; min-width:0; }
   .daily-income-item { display:flex; flex:1 1 0; min-width:0; height:100%; flex-direction:column; align-items:center; justify-content:flex-end; }
-  .daily-income-value { color:#57606a; font-size:9px; font-weight:600; line-height:11px; white-space:nowrap; }
+  .daily-income-value { color:#57606a; font-size:8px; font-weight:600; line-height:11px; white-space:nowrap; }
   .daily-income-bar-area { display:flex; align-items:flex-end; height:28px; margin:1px 0; }
-  .daily-income-bar { display:block; width:14px; min-height:2px; border-radius:3px 3px 0 0; background:#c8d1dc; }
+  .daily-income-bar { display:block; width:9px; min-height:2px; border-radius:3px 3px 0 0; background:#c8d1dc; }
   .daily-income-bar.positive { background:#0969da; }
-  .daily-income-date { color:#6b7280; font-size:9px; line-height:10px; }
+  .daily-income-date { color:#6b7280; font-size:8px; line-height:10px; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
   .position-columns { display:grid; grid-template-columns:repeat(3, minmax(0, 1.1fr)) repeat(2, minmax(0, .85fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
   .section, .section .grid { min-width:0; width:100%; }
@@ -94,7 +94,7 @@
   .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:600; color:#0969da; cursor:pointer; }
   .mini-btn:hover { background:#f6f8fa; }
   .mini-btn:disabled { opacity:.6; cursor:default; }
-  @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .daily-income { gap:2px; } .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+  @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
   @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } }
   @media (max-width:600px) { .wrap { padding:12px; } }
 </style>

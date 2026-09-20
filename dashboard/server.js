@@ -123,7 +123,7 @@ function recordIncome(positions) {
   if (changed) saveIncomeHistory();
 }
 
-function incomeDays(count = 14) {
+function incomeDays(count = 30) {
   return Array.from({ length: count }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() - index);

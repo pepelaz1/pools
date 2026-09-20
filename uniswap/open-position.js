@@ -243,7 +243,13 @@ async function main() {
     const before = await native.balanceOf(wallet.address);
     const router = new ethers.Contract(cfg.swapRouter, ROUTER_ABI, wallet);
     const minimum = (await quoteNative(stableToSwap)) * BigInt(10000 - SLIPPAGE_BPS) / 10000n;
-    await (await router.exactInputSingle({ tokenIn: cfg.stable, tokenOut: cfg.native, fee: cfg.defaultFee, recipient: wallet.address, amountIn: stableToSwap, amountOutMinimum: minimum, sqrtPriceLimitX96: 0 })).wait();
+    const swapParams = { tokenIn: cfg.stable, tokenOut: cfg.native, fee: cfg.defaultFee, recipient: wallet.address, amountIn: stableToSwap, amountOutMinimum: minimum, sqrtPriceLimitX96: 0 };
+    console.log(`свап ${cfg.stableName} -> ${cfg.nativeName}...`);
+    await router.exactInputSingle.staticCall(swapParams);
+    const swapGas = await router.exactInputSingle.estimateGas(swapParams);
+    const swapTx = await router.exactInputSingle(swapParams, { gasLimit: swapGas * 120n / 100n });
+    console.log(`swap tx: ${swapTx.hash}`);
+    await swapTx.wait();
     nativeReceived = (await native.balanceOf(wallet.address)) - before;
   }
 
@@ -251,8 +257,14 @@ async function main() {
   const amount1Desired = stableIs0 ? nativeReceived : stableToMint;
   const pm = new ethers.Contract(cfg.positionManager, PM_ABI, wallet);
   const mintParams = { token0, token1, fee: cfg.defaultFee, tickLower, tickUpper, amount0Desired, amount1Desired, amount0Min: 0, amount1Min: 0, recipient: wallet.address, deadline: Math.floor(Date.now() / 1000) + 1800 };
+  // Simulate and estimate before the only mint broadcast. Never retry a broadcast mint:
+  // a late confirmation could otherwise create a duplicate LP NFT.
+  console.log("проверяю mint...");
   const preview = await pm.mint.staticCall(mintParams);
-  const tx = await pm.mint(mintParams);
+  console.log("оцениваю газ mint...");
+  const mintGas = await pm.mint.estimateGas(mintParams);
+  const tx = await pm.mint(mintParams, { gasLimit: mintGas * 120n / 100n });
+  console.log(`mint tx: ${tx.hash}`);
   const receipt = await tx.wait();
   const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
   const log = receipt.logs.find((entry) => entry.address.toLowerCase() === cfg.positionManager.toLowerCase() && entry.topics[0] === transferTopic && entry.topics[1] === ethers.ZeroHash);
