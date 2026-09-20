@@ -353,8 +353,12 @@ async function main() {
         amount1Min: 0,
         deadline: Math.floor(Date.now() / 1000) + 1800,
       };
+      console.log("проверяю довнесение...");
       const increasePreview = await pm.increaseLiquidity.staticCall(increaseParams);
-      const increaseTx = await pm.increaseLiquidity(increaseParams);
+      console.log("оцениваю газ довнесения...");
+      const increaseGas = await pm.increaseLiquidity.estimateGas(increaseParams);
+      const increaseTx = await pm.increaseLiquidity(increaseParams, { gasLimit: increaseGas * 120n / 100n });
+      console.log(`increase tx: ${increaseTx.hash}`);
       const increaseReceipt = await increaseTx.wait();
       const increaseLog = increaseReceipt.logs.find((entry) => {
         try {

@@ -42,6 +42,11 @@ function parseArgs() {
   return { walletSelector, tokenId: BigInt(args[0]), amount: args[1], chain: args[2] };
 }
 
+function parseTokenAmount(value, decimals) {
+  const [whole, fraction = ""] = String(value).split(".");
+  return ethers.parseUnits(`${whole}.${fraction.slice(0, decimals)}`, decimals);
+}
+
 function updateOpening(tokenId, chain, amount0, amount1, valueUsd) {
   if (!fs.existsSync(POSITIONS_FILE)) return;
   const data = JSON.parse(fs.readFileSync(POSITIONS_FILE, "utf8"));
@@ -78,7 +83,7 @@ async function main() {
   const [stableDecRaw, nativeDecRaw] = await Promise.all([stable.decimals(), native.decimals()]);
   const stableDec = Number(stableDecRaw);
   const nativeDec = Number(nativeDecRaw);
-  const budget = ethers.parseUnits(amount, stableDec);
+  const budget = parseTokenAmount(amount, stableDec);
   if (await stable.balanceOf(wallet.address) < budget) throw new Error(`недостаточно ${cfg.stableName}`);
 
   const factory = new ethers.Contract(cfg.factory, FACTORY_ABI, provider);
