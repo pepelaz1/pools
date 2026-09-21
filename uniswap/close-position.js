@@ -78,7 +78,12 @@ async function main() {
 
   if (pos.liquidity > 0n) {
     console.log("withdraw...");
-    await (await pm.decreaseLiquidity({ tokenId, liquidity: pos.liquidity, amount0Min: 0, amount1Min: 0, deadline: Math.floor(Date.now() / 1000) + 1800 })).wait();
+    const withdrawParams = { tokenId, liquidity: pos.liquidity, amount0Min: 0, amount1Min: 0, deadline: Math.floor(Date.now() / 1000) + 1800 };
+    await pm.decreaseLiquidity.staticCall(withdrawParams);
+    const withdrawGas = await pm.decreaseLiquidity.estimateGas(withdrawParams);
+    const withdrawTx = await pm.decreaseLiquidity(withdrawParams, { gasLimit: withdrawGas * 120n / 100n });
+    console.log(`withdraw tx: ${withdrawTx.hash}`);
+    await withdrawTx.wait();
   }
   console.log("collect...");
   await (await pm.collect({ tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128 })).wait();

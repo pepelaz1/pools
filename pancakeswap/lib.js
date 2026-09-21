@@ -70,7 +70,7 @@ async function swapToUsdt(wallet, tokenIn, amountIn, fee, slippageBps) {
   const tokenC = new ethers.Contract(tokenIn, ERC20_ABI, wallet);
   const allowance = await tokenC.allowance(me, SWAP_ROUTER);
   if (allowance < amountIn) {
-    await (await tokenC.approve(SWAP_ROUTER, ethers.MaxUint256)).wait();
+    await (await tokenC.approve(SWAP_ROUTER, amountIn)).wait();
   }
 
   let amountOutMin = 0n;
@@ -387,13 +387,18 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   if (liquidity > 0n) {
     try {
       console.log("  забираю ликвидность...");
-      await (await pm.decreaseLiquidity({
+      const decreaseParams = {
         tokenId,
         liquidity,
         amount0Min: 0,
         amount1Min: 0,
         deadline: Math.floor(Date.now() / 1000) + 1800,
-      })).wait();
+      };
+      await pm.decreaseLiquidity.staticCall(decreaseParams);
+      const decreaseGas = await pm.decreaseLiquidity.estimateGas(decreaseParams);
+      const decreaseTx = await pm.decreaseLiquidity(decreaseParams, { gasLimit: decreaseGas * 120n / 100n });
+      console.log(`  decrease tx: ${decreaseTx.hash}`);
+      await decreaseTx.wait();
       stats.steps.push("decreaseLiquidity");
       console.log("  ликвидность забрана");
 
@@ -479,6 +484,9 @@ module.exports = {
   WBNB,
   USDT,
   CAKE,
+  WBNB_USDT_FEE,
+  CAKE_USDT_FEE,
+  swapToUsdt,
   prompt,
   promptHidden,
 };
