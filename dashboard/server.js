@@ -159,6 +159,12 @@ async function refreshChartSpots(charts) {
   await Promise.all(CHARTS.map(async (chart) => {
     try {
       const points = charts[chart.key]?.prices;
+      // A transient RPC error can cache an empty series. Rebuild it immediately
+      // instead of keeping the chart blank until the whole cache expires.
+      if (!points?.length) {
+        charts[chart.key] = await readDexChart(chart);
+        return;
+      }
       const price = await readDexSpot(chart);
       if (points?.length && Number.isFinite(price) && price > 0) points[points.length - 1] = [Date.now(), price];
     } catch {
