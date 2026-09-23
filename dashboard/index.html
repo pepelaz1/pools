@@ -28,9 +28,11 @@
   .daily-income-item { display:flex; flex:1 1 0; min-width:0; height:100%; flex-direction:column; align-items:center; justify-content:flex-end; }
   .daily-income-value { color:#57606a; font-size:8px; font-weight:600; line-height:11px; white-space:nowrap; }
   .daily-income-bar-area { display:flex; align-items:flex-end; height:28px; margin:1px 0; }
-  .daily-income-bar { display:block; width:9px; min-height:2px; border-radius:3px 3px 0 0; background:#c8d1dc; }
+  .daily-income-bar { display:block; width:15px; min-height:2px; border-radius:3px 3px 0 0; background:#c8d1dc; }
   .daily-income-bar.positive { background:#0969da; }
   .daily-income-date { color:#6b7280; font-size:8px; line-height:10px; }
+  .income-averages { flex:0 0 auto; color:#57606a; font-size:10px; line-height:16px; white-space:nowrap; }
+  .income-averages b { color:#1f2328; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
   .position-columns { display:grid; grid-template-columns:repeat(3, minmax(0, 1.1fr)) repeat(2, minmax(0, .85fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
   .section, .section .grid { min-width:0; width:100%; }
@@ -111,7 +113,7 @@
 
   <div class="stats">
     <div class="stat"><div class="k">Стоимость ликвидности</div><div class="v" id="statValue">—</div></div>
-    <div class="stat"><div class="k">Накоплено дохода</div><div class="income-content"><div class="income-total"><div class="v" id="statFees">—</div><div class="rate" id="statRubRate"></div></div><div class="daily-income" id="dailyIncome">—</div></div></div>
+    <div class="stat"><div class="k">Накоплено дохода</div><div class="income-content"><div class="income-total"><div class="v" id="statFees">—</div><div class="rate" id="statRubRate"></div></div><div class="daily-income" id="dailyIncome">—</div><div class="income-averages" id="statDailyAverages">—</div></div></div>
     <div class="stat"><div class="k">Позиции (в диапазоне)</div><div class="v" id="statCount">—</div></div>
   </div>
 
@@ -363,8 +365,18 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays) {
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
   const totalIncomeUsd = positions.reduce((sum, r) => sum + r.feeUsd + (r.cake ? r.cake.usd : 0), 0);
   const incomeRub = Number(rubPerUsd) * totalIncomeUsd;
+  const averageIncome = (days) => days.length
+    ? days.reduce((sum, day) => sum + (Number(day.incomeUsd) || 0), 0) / days.length
+    : null;
+  const days30 = incomeDays || [];
+  const average30 = averageIncome(days30);
+  const days7 = days30.slice(0, 7);
+  const average7 = averageIncome(days7);
   document.getElementById("statFees").textContent = `${fmtUsd(totalIncomeUsd)}${isFinite(incomeRub) ? ` (${fmtRub(incomeRub)})` : ""}`;
   document.getElementById("statRubRate").textContent = Number.isFinite(Number(rubPerUsd)) ? `1 USDC = ${fmtRub(Number(rubPerUsd))}` : "";
+  document.getElementById("statDailyAverages").innerHTML = average30 == null
+    ? ""
+    : `ср. 30 дн.: <b>${fmtUsd(average30)}</b>/день<br>ср. 7 дн.: <b>${fmtUsd(average7)}</b>/день`;
   document.getElementById("dailyIncome").innerHTML = renderDailyIncome(incomeDays, rubPerUsd);
   const inRange = positions.filter((r) => r.inRange).length;
   document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
