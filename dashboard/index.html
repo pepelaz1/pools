@@ -34,18 +34,20 @@
   .income-averages { flex:0 0 auto; color:#57606a; font-size:10px; line-height:16px; white-space:nowrap; }
   .income-averages b { color:#1f2328; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
-  .position-columns { display:grid; grid-template-columns:repeat(3, minmax(0, 1.1fr)) repeat(2, minmax(0, .85fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
+  .position-columns { display:grid; grid-template-columns:repeat(4, minmax(0, 1.2fr)) repeat(2, minmax(0, .7fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
   .section, .section .grid { min-width:0; width:100%; }
-  .position-columns .card { min-width:0; padding:10px; }
+  .section-two-columns { grid-column:span 2; }
+  .section-two-columns .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .position-columns .card { width:100%; min-width:0; margin-inline:0; padding:10px; }
   .position-columns .row { gap:3px; font-size:12px; }
   .position-columns .row b { letter-spacing:-.15px; white-space:nowrap; }
   .position-columns .fee-row { font-size:11px; }
   .position-columns .sub { font-size:12px; }
-  .section-head { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
-  .section-head h2 { font-size:14px; letter-spacing:-.2px; margin:0; white-space:nowrap; }
+  .section-head { display:flex; align-items:center; gap:5px; margin-bottom:10px; }
+  .section-head h2 { font-size:12px; letter-spacing:-.2px; margin:0; white-space:nowrap; }
   .section-head .dot { width:9px; height:9px; border-radius:50%; }
-  .section-head .chip { font-size:12px; color:#6b7280; }
-  .section-head .price { font-weight:600; font-size:13px; }
+  .section-head .chip { color:#6b7280; font-size:10px; white-space:nowrap; }
+  .section-head .price { font-weight:600; font-size:11px; white-space:nowrap; }
   .wallet-card { margin-bottom:12px; }
   .wallet-total { font-size:15px; font-weight:700; margin:4px 0 8px; }
   .wallet-rub { color:#1f2328; font-size:12px; font-weight:600; white-space:nowrap; }
@@ -64,6 +66,13 @@
   .chart-price { font-size:11px; font-weight:700; }
   .chart-svg { display:block; width:100%; height:64px; margin:8px 0 4px; overflow:visible; }
   .chart-meta { display:flex; justify-content:space-between; color:#6b7280; font-size:10px; }
+  .chart-indicators { display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; margin-top:7px; padding-top:6px; border-top:1px solid #f0f1f2; color:#6b7280; font-size:9px; }
+  .chart-indicator { display:flex; justify-content:space-between; gap:4px; min-width:0; white-space:nowrap; }
+  .chart-indicator b { color:#1f2328; font-weight:600; }
+  .chart-signal { grid-column:1 / -1; }
+  .chart-signal b.flat { color:#57606a; }
+  .chart-signal b.up { color:#1a7f37; }
+  .chart-signal b.down { color:#bc4c00; }
   .card { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:12px; }
   .card.out { border-color:#d4a72c; }
   .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -96,8 +105,8 @@
   .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:600; color:#0969da; cursor:pointer; }
   .mini-btn:hover { background:#f6f8fa; }
   .mini-btn:disabled { opacity:.6; cursor:default; }
-  @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
-  @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } }
+  @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } .section-two-columns { grid-column:span 2; } }
+  @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } .section-two-columns { grid-column:span 1; } .section-two-columns .grid { grid-template-columns:1fr; } }
   @media (max-width:600px) { .wrap { padding:12px; } }
 </style>
 </head>
@@ -233,12 +242,13 @@ const CHAIN_COLORS = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b"
 function renderSection(chainLabel, chainKey, positions, price) {
   const total = positions.reduce((a, r) => a + r.valueUsd, 0);
   const color = CHAIN_COLORS[chainKey] || "#888";
+  const isEthUsdc = positions.length && positions.every((position) => (position.displayPair || `${position.sym0}/${position.sym1}`) === "ETH/USDC");
   const priceHtml = price && price.price != null
     ? `<span class="price">${price.sym} · ${fmtUsd(price.price)}</span>`
     : "";
   const cards = positions.map(renderCard).join("");
   return `
-  <div class="section">
+  <div class="section section-pools ${isEthUsdc ? "section-two-columns" : ""}">
     <div class="section-head">
       <span class="dot" style="background:${color}"></span>
       <h2>${chainLabel}</h2>
@@ -318,6 +328,44 @@ function renderChart(points, color) {
   return `<svg class="chart-svg" viewBox="0 0 100 64" preserveAspectRatio="none" aria-label="График цены"><line x1="0" y1="60" x2="100" y2="60" stroke="#e1e4e8" stroke-width="1"/><polyline points="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
+function calculateEma(values, period) {
+  if (values.length < period) return null;
+  const multiplier = 2 / (period + 1);
+  let value = values.slice(0, period).reduce((sum, price) => sum + price, 0) / period;
+  for (let index = period; index < values.length; index += 1) value = values[index] * multiplier + value * (1 - multiplier);
+  return value;
+}
+
+function getChartIndicators(points, durationHours) {
+  const values = points.map((point) => Number(point[1])).filter((value) => Number.isFinite(value) && value > 0);
+  if (values.length < 50 || !Number.isFinite(Number(durationHours)) || durationHours <= 0) return null;
+  const last = values.at(-1);
+  const ema20 = calculateEma(values, 20);
+  const ema50 = calculateEma(values, 50);
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const rangePct = ((high - low) / last) * 100;
+  const differencePct = ((ema20 / ema50) - 1) * 100;
+  const threshold = Math.max(0.08, rangePct * 0.12);
+  const trend = differencePct > threshold ? "up" : differencePct < -threshold ? "down" : "flat";
+  const trendLabel = trend === "up" ? "рост" : trend === "down" ? "снижение" : "флэт";
+  const sampleMinutes = (Number(durationHours) * 60) / (values.length - 1);
+  const rangeWidth = Math.max(rangePct * 0.7, 0.5);
+  return { ema20, ema50, rangePct, trend, trendLabel, sampleMinutes, rangeWidth };
+}
+
+function renderChartIndicators(points, durationHours) {
+  const indicators = getChartIndicators(points, durationHours);
+  if (!indicators) return `<div class="chart-indicators"><div class="chart-signal">Сигнал: <b class="flat">недостаточно истории</b></div></div>`;
+  return `<div class="chart-indicators">
+    <div class="chart-indicator"><span>EMA20</span><b>${fmtUsd(indicators.ema20)}</b></div>
+    <div class="chart-indicator"><span>EMA50</span><b>${fmtUsd(indicators.ema50)}</b></div>
+    <div class="chart-indicator"><span>Диапазон</span><b>${fmt(indicators.rangePct, 2)}%</b></div>
+    <div class="chart-indicator"><span>LP ±</span><b>${fmt(indicators.rangeWidth, 2)}%</b></div>
+    <div class="chart-signal">Сигнал: <b class="${indicators.trend}">${indicators.trendLabel}</b> · EMA по ${fmt(indicators.sampleMinutes, 1)}-мин. TWAP</div>
+  </div>`;
+}
+
 function renderChartsSection(charts) {
   const cards = Object.values(charts || {}).map((chart) => {
     const points = chart.prices || [];
@@ -329,6 +377,7 @@ function renderChartsSection(charts) {
       <div class="chart-head"><span class="pair">${chart.pair}</span><span class="chart-price">${isFinite(last) ? fmtUsd(last) : "—"}</span></div>
       ${renderChart(points, chart.color)}
       <div class="chart-meta"><span>${chart.durationHours ? `${fmt(chart.durationHours, 1)}ч` : "—"}</span><span class="${changeClass}">${change == null ? "—" : fmtSignedPct(change)}</span></div>
+      ${renderChartIndicators(points, chart.durationHours)}
     </div>`;
   }).join("");
   return `<div class="section"><div class="section-head"><span class="dot" style="background:#6b7280"></span><h2>Графики</h2></div><div class="grid">${cards}</div></div>`;

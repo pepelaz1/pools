@@ -200,7 +200,9 @@ async function readDexChart(chart) {
 
   // Some pools retain less than 24 hours of observations. Use their full available
   // history rather than falling back to an unrelated market-price feed.
-  const pointCount = Math.max(2, Math.min(25, Math.floor(historySeconds / 3_600) + 1));
+  // Fifty observations are enough for EMA20/EMA50 while the chart still shows
+  // the same on-chain TWAP period available in the pool oracle.
+  const pointCount = 51;
   const secondsAgos = Array.from(
     { length: pointCount },
     (_, index) => Math.round(historySeconds * (pointCount - index - 1) / (pointCount - 1)),
@@ -225,7 +227,7 @@ async function readDexChart(chart) {
 }
 
 async function getMarketData() {
-  if (priceCache?.source === "dex-twap-v3" && priceCache.updated && Date.now() - priceCache.updated < 15 * 60 * 1000 && Number.isFinite(priceCache.rubPerUsd)) {
+  if (priceCache?.source === "dex-twap-v3-technical-v2" && priceCache.updated && Date.now() - priceCache.updated < 15 * 60 * 1000 && Number.isFinite(priceCache.rubPerUsd)) {
     await refreshChartSpots(priceCache.charts);
     return { charts: priceCache.charts, rubPerUsd: priceCache.rubPerUsd };
   }
@@ -249,7 +251,7 @@ async function getMarketData() {
       .catch(() => null),
   ]);
 
-  priceCache = { source: "dex-twap-v3", updated: Date.now(), charts: Object.fromEntries(entries), rubPerUsd };
+  priceCache = { source: "dex-twap-v3-technical-v2", updated: Date.now(), charts: Object.fromEntries(entries), rubPerUsd };
   savePriceCache();
   return { charts: priceCache.charts, rubPerUsd };
 }
