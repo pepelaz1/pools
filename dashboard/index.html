@@ -24,13 +24,14 @@
   .stat .rate { color:#6b7280; font-size:10px; margin-top:2px; }
   .income-content { display:flex; align-items:center; gap:14px; margin-top:3px; }
   .income-total { flex:0 0 auto; }
-  .daily-income { display:flex; align-items:flex-end; justify-content:flex-start; gap:1px; height:54px; flex:1 1 auto; min-width:0; }
+  .daily-income { display:flex; align-items:flex-end; justify-content:flex-start; gap:1px; height:63px; flex:1 1 auto; min-width:0; }
   .daily-income-item { display:flex; flex:1 1 0; min-width:0; height:100%; flex-direction:column; align-items:center; justify-content:flex-end; }
   .daily-income-value { color:#57606a; font-size:8px; font-weight:600; line-height:11px; white-space:nowrap; }
   .daily-income-bar-area { display:flex; align-items:flex-end; height:28px; margin:1px 0; }
   .daily-income-bar { display:block; width:15px; min-height:2px; border-radius:3px 3px 0 0; background:#c8d1dc; }
   .daily-income-bar.positive { background:#0969da; }
   .daily-income-date { color:#6b7280; font-size:8px; line-height:10px; }
+  .daily-income-weekday { color:#8c959f; font-size:7px; line-height:8px; }
   .income-averages { flex:0 0 auto; color:#57606a; font-size:10px; line-height:16px; white-space:nowrap; }
   .income-averages b { color:#1f2328; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
@@ -387,10 +388,12 @@ function renderDailyIncome(days, rubPerUsd) {
   const today = new Date().toLocaleDateString("en-CA");
   const maxIncome = Math.max(...(days || []).map((day) => Number(day.incomeUsd) || 0), 0);
   return (days || []).map((day) => {
-    const label = new Date(`${day.date}T00:00:00`).toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit" });
+    const date = new Date(`${day.date}T00:00:00`);
+    const label = date.toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit" });
+    const weekday = date.toLocaleDateString("ru-RU", { weekday:"short" }).replace(".", "");
     const income = Number(day.incomeUsd) || 0;
     const height = maxIncome ? Math.max(2, Math.round((income / maxIncome) * 26)) : 2;
-    return `<div class="daily-income-item" title="${label}: ${fmtUsd(income)}"><span class="daily-income-value">${fmtUsd(income)}</span><span class="daily-income-bar-area"><span class="daily-income-bar ${income > 0 ? "positive" : ""}" style="height:${height}px"></span></span><span class="daily-income-date">${label}</span></div>`;
+    return `<div class="daily-income-item" title="${label}: ${fmtUsd(income)}"><span class="daily-income-value">${fmtUsd(income)}</span><span class="daily-income-bar-area"><span class="daily-income-bar ${income > 0 ? "positive" : ""}" style="height:${height}px"></span></span><span class="daily-income-date">${label}</span><span class="daily-income-weekday">${weekday}</span></div>`;
   }).join("");
 }
 
