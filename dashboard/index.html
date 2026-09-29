@@ -96,6 +96,8 @@
   .row span { color:#6b7280; }
   .fee-row { gap:6px; font-size:11px; white-space:nowrap; }
   .card-bottom { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; }
+  .card-bottom .value { font-size:14px; white-space:nowrap; }
+  .card-bottom .dim { font-size:inherit; }
   .value { font-size:16px; font-weight:700; }
   .dim { color:#6b7280; font-size:11px; font-weight:400; }
   .good { color:#1a7f37; }
@@ -183,6 +185,9 @@ function updatePositionAges() {
 function renderCard(r) {
   const dexColor = r.dex === "uniswap" ? "#ff007a" : "#1fc7d4";
   const chainColor = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b" }[r.chain] || "#888";
+  const cakeUsd = r.cake?.usd || 0;
+  const incomeUsd = r.feeUsd + cakeUsd;
+  const valueWithIncomeUsd = r.valueUsd + incomeUsd;
   const cakeRow = r.cake
     ? `<div class="row"><span>Награды CAKE</span><b>${fmt(r.cake.amount, 18, 4)} CAKE · ${fmtUsd(r.cake.usd)}</b></div>`
     : "";
@@ -197,7 +202,7 @@ function renderCard(r) {
     ? `
       <div class="row"><span>Внесено при открытии</span><b>${fmtUsd(r.initialValueUsd)}</b></div>
       <div class="row"><span>Цена</span><b>${fmt(r.displayOpeningPrice, 4)} → ${fmt(r.displayCurrentPrice, 4)} (${fmtSignedPct(r.priceChangePct)})</b></div>
-      <div class="row"><span>P/L с комиссиями</span><b class="pnl ${r.pnlUsd >= 0 ? "good" : "bad"}">${fmtSignedUsd(r.pnlUsd)} (${fmtSignedPct(r.pnlPct)})</b></div>`
+      <div class="row"><span>P/L с доходом</span><b class="pnl ${r.pnlUsd >= 0 ? "good" : "bad"}">${fmtSignedUsd(r.pnlUsd)} (${fmtSignedPct(r.pnlPct)})</b></div>`
     : "";
   const openedRow = r.openedAt
     ? `<div class="position-time">Открыта: <b>${formatOpenedAt(r.openedAt)}</b> · в позиции <b class="position-age" data-opened-at="${r.openedAt}">${formatPositionAge(r.openedAt)}</b></div>`
@@ -219,7 +224,7 @@ function renderCard(r) {
       ${performanceRows}
     </div>
     <div class="card-bottom">
-      <div class="value">${fmtUsd(r.valueUsd)} <span class="dim">(в ${stable})</span></div>
+      <div class="value">${fmtUsd(r.valueUsd)} <span class="dim">+ ${fmtUsd(incomeUsd)} =</span> ${fmtUsd(valueWithIncomeUsd)} <span class="dim">(в ${stable})</span></div>
       <div class="card-foot"><button class="mini-btn refresh" onclick="refreshOne('${r.id}')">Обновить</button></div>
     </div>
   </div>`;

@@ -313,8 +313,8 @@ async function readPosition(item) {
     && Number.isFinite(initialValueUsd) && initialValueUsd > 0;
   const displayOpeningPrice = hasOpening && priceIsInverted ? 1 / openingPrice : openingPrice;
   const priceChangePct = hasOpening ? ((displayCurrentPrice / displayOpeningPrice) - 1) * 100 : null;
-  const valueWithFeesUsd = valueUsd + feeUsd;
-  const pnlUsd = hasOpening ? valueWithFeesUsd - initialValueUsd : null;
+  const valueWithIncomeUsd = valueUsd + feeUsd + (cake?.usd || 0);
+  const pnlUsd = hasOpening ? valueWithIncomeUsd - initialValueUsd : null;
   const pnlPct = hasOpening ? (pnlUsd / initialValueUsd) * 100 : null;
   const belowRange = displayCurrentPrice < displayLowerPrice;
   const aboveRange = displayCurrentPrice > displayUpperPrice;
@@ -351,7 +351,7 @@ async function readPosition(item) {
     feeUsd,
     openedAt: opened?.at || null,
     initialValueUsd: hasOpening ? initialValueUsd : null,
-    valueWithFeesUsd,
+    valueWithIncomeUsd,
     displayOpeningPrice: hasOpening ? displayOpeningPrice : null,
     priceChangePct,
     pnlUsd,

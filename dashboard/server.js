@@ -226,6 +226,31 @@ async function readDexChart(chart) {
   return { pair: chart.pair, color: chart.color, prices, durationHours: historySeconds / 3_600 };
 }
 
+async function getRubPerUsd(lastKnownRate) {
+  try {
+    const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=rub", {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`CoinGecko ${response.status}`);
+    const data = await response.json();
+    const rate = Number(data["usd-coin"]?.rub);
+    if (Number.isFinite(rate) && rate > 0) return rate;
+  } catch {}
+
+  try {
+    const response = await fetch("https://www.cbr.ru/scripts/XML_daily.asp", {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`CBR ${response.status}`);
+    const xml = await response.text();
+    const match = xml.match(/<CharCode>USD<\/CharCode>[\s\S]*?<Value>([\d,]+)<\/Value>/);
+    const rate = Number(match?.[1]?.replace(",", "."));
+    if (Number.isFinite(rate) && rate > 0) return rate;
+  } catch {}
+
+  return Number.isFinite(Number(lastKnownRate)) ? Number(lastKnownRate) : null;
+}
+
 async function getMarketData() {
   if (priceCache?.source === "dex-twap-v3-technical-v2" && priceCache.updated && Date.now() - priceCache.updated < 15 * 60 * 1000 && Number.isFinite(priceCache.rubPerUsd)) {
     await refreshChartSpots(priceCache.charts);
@@ -240,15 +265,7 @@ async function getMarketData() {
         return [chart.key, { pair: chart.pair, color: chart.color, prices: [] }];
       }
     })),
-    fetch("https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=rub", {
-      signal: AbortSignal.timeout(10_000),
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`CoinGecko ${response.status}`);
-        const data = await response.json();
-        return Number(data["usd-coin"]?.rub);
-      })
-      .catch(() => null),
+    getRubPerUsd(priceCache?.rubPerUsd),
   ]);
 
   priceCache = { source: "dex-twap-v3-technical-v2", updated: Date.now(), charts: Object.fromEntries(entries), rubPerUsd };
