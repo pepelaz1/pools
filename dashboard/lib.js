@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
+const { readProvider, mapLimit } = require("./rpc");
 
 const ROOT = path.join(__dirname, "..");
 const MAX_UINT128 = 2n ** 128n - 1n;
@@ -74,15 +75,14 @@ const AAVE_POOLS = {
 const AAVE_POOL_ABI = [
   "function getUserAccountData(address user) view returns(uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor)",
 ];
+const AAVE_BASE_DECIMALS = 8;
 
 const COLLECT_ABI = [
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
 ];
 
-const providers = {};
 function provider(chain) {
-  if (!providers[chain]) providers[chain] = new ethers.JsonRpcProvider(CHAINS[chain].rpc);
-  return providers[chain];
+  return readProvider(chain, CHAINS[chain].rpc);
 }
 
 function loadJson(file) {
@@ -183,7 +183,7 @@ async function getWalletBalances() {
       const token = new ethers.Contract(c.stableToken, ERC20_ABI, provider(chain));
       const aave = new ethers.Contract(AAVE_POOLS[chain], AAVE_POOL_ABI, provider(chain));
       const decimals = Number(await token.decimals());
-      const balances = await Promise.all(wallets.map(async (wallet) => {
+      const balances = await mapLimit(wallets, 2, async (wallet) => {
         const [amountRaw, account] = await Promise.all([
           token.balanceOf(wallet.address),
           aave.getUserAccountData(wallet.address).catch(() => null),
@@ -192,8 +192,11 @@ async function getWalletBalances() {
           ...wallet,
           amount: Number(ethers.formatUnits(amountRaw, decimals)),
           healthFactor: account?.totalDebtBase > 0n ? Number(account.healthFactor) / 1e18 : null,
+          aaveCollateralUsd: account ? Number(ethers.formatUnits(account.totalCollateralBase, AAVE_BASE_DECIMALS)) : null,
+          aaveDebtUsd: account ? Number(ethers.formatUnits(account.totalDebtBase, AAVE_BASE_DECIMALS)) : null,
+          aaveAvailableBorrowUsd: account ? Number(ethers.formatUnits(account.availableBorrowsBase, AAVE_BASE_DECIMALS)) : null,
         };
-      }));
+      });
       return {
         chain,
         chainLabel: c.label,
@@ -207,7 +210,14 @@ async function getWalletBalances() {
         chainLabel: c.label,
         symbol: c.stable,
         total: null,
-        wallets: wallets.map((wallet) => ({ ...wallet, amount: null, healthFactor: null })),
+        wallets: wallets.map((wallet) => ({
+          ...wallet,
+          amount: null,
+          healthFactor: null,
+          aaveCollateralUsd: null,
+          aaveDebtUsd: null,
+          aaveAvailableBorrowUsd: null,
+        })),
       };
     }
   }));

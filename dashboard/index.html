@@ -49,7 +49,7 @@
   .section-head .dot { width:9px; height:9px; border-radius:50%; }
   .section-head .chip { color:#6b7280; font-size:10px; white-space:nowrap; }
   .section-head .price { font-weight:600; font-size:11px; white-space:nowrap; }
-  .wallet-card { margin-bottom:12px; }
+  .wallet-card { margin-bottom:0; }
   .wallet-total { font-size:15px; font-weight:700; margin:4px 0 8px; }
   .wallet-rub { color:#1f2328; font-size:12px; font-weight:600; white-space:nowrap; }
   .section-head .wallet-rate { color:#1f2328; font-size:13px; font-weight:600; }
@@ -61,7 +61,10 @@
   .aave-health.watch { color:#bc4c00; }
   .aave-health.risk { color:#cf222e; }
   .aave-inline { margin-left:4px; white-space:nowrap; }
-  .chart-card { padding:10px; margin-bottom:12px; }
+  .aave-summary { gap:5px; font-size:9px; }
+  .aave-summary span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .aave-summary b { font-size:9px; white-space:nowrap; }
+  .chart-card { padding:10px; margin-bottom:0; }
   .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
   .chart-head .pair { font-size:12px; }
   .chart-price { font-size:11px; font-weight:700; }
@@ -140,6 +143,12 @@ function fmt(n, dec, max) {
 function fmtUsd(n) {
   if (!isFinite(n)) return "—";
   return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function fmtCompactUsd(n) {
+  if (!isFinite(n)) return "—";
+  if (Math.abs(n) < 1000) return fmtUsd(n);
+  const digits = Math.abs(n) >= 10_000 ? 1 : 2;
+  return "$" + (n / 1000).toFixed(digits).replace(/\.?0+$/, "") + "k";
 }
 function fmtRub(n) {
   if (!isFinite(n)) return "";
@@ -284,6 +293,9 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
         symbol: group.symbol,
         amount: wallet.amount,
         healthFactor: wallet.healthFactor,
+        aaveCollateralUsd: wallet.aaveCollateralUsd,
+        aaveDebtUsd: wallet.aaveDebtUsd,
+        aaveAvailableBorrowUsd: wallet.aaveAvailableBorrowUsd,
       });
     }
   }
@@ -302,7 +314,13 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
         ? `<span class="aave-inline">${Number(balance.amount) !== 0 ? "· " : ""}hf <b class="aave-health ${healthClass}">${fmt(healthFactor, 2)}</b></span>`
         : "";
       const balanceValue = Number(balance.amount) !== 0 ? `<b>${fmt(balance.amount, 18)} ${balance.symbol}</b>` : "";
-      return `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${Number(balance.amount) !== 0 ? balance.symbol : ""}${healthInline}</span>${balanceValue}</div>`;
+      const debtUsd = Number(balance.aaveDebtUsd);
+      const collateralUsd = Number(balance.aaveCollateralUsd);
+      const availableBorrowUsd = Number(balance.aaveAvailableBorrowUsd);
+      const aaveSummary = debtUsd > 0
+        ? `<div class="row aave-summary"><span class="wallet-label" title="залог ${fmtUsd(collateralUsd)} · долг ${fmtUsd(debtUsd)}"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>зал./долг ${fmtCompactUsd(collateralUsd)}/${fmtCompactUsd(debtUsd)}</span><b>дост. ${fmtCompactUsd(availableBorrowUsd)}</b></div>`
+        : "";
+      return `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${Number(balance.amount) !== 0 ? balance.symbol : ""}${healthInline}</span>${balanceValue}</div>${aaveSummary}`;
     }).join("");
     const rows = `${balanceRows}${positionCount ? `<div class="row"><span>LP-позиции</span><b>${positionCount}</b></div>` : ""}`;
     return `

@@ -6,7 +6,7 @@ const { CHAINS, promptHidden } = require("./lib");
 
 const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const AAVE_POOL = "0x794a61358d6845594f94dc1db02a252b5b4814ad";
-const MIN_HEALTH_FACTOR = 3.5;
+const MIN_HEALTH_FACTOR = 1.5;
 const AAVE_BASE_DECIMALS = 8;
 const AAVE_ABI = [
   "function getUserAccountData(address) view returns(uint256,uint256,uint256,uint256,uint256,uint256)",
@@ -55,7 +55,7 @@ async function main() {
   console.log(`доступно по Aave: ${availableUsd.toFixed(2)} USD`);
   console.log(`HF: ${Number.isFinite(hf) ? hf.toFixed(2) : "∞"} -> ${Number.isFinite(nextHf) ? nextHf.toFixed(2) : "∞"}`);
   if (Number(amount) > availableUsd) throw new Error("сумма превышает доступный лимит Aave");
-  if (nextHf < MIN_HEALTH_FACTOR) throw new Error(`заем отменен: расчетный HF ${nextHf.toFixed(2)} ниже безопасного порога ${MIN_HEALTH_FACTOR}`);
+  if (nextHf < MIN_HEALTH_FACTOR) throw new Error(`заем отменен: расчетный HF ${nextHf.toFixed(2)} ниже минимального порога ${MIN_HEALTH_FACTOR}`);
 
   const params = [cfg.stable, amountRaw, 2, 0, selected.address]; // 2 = variable debt.
   await readPool.borrow.staticCall(...params, { from: selected.address });

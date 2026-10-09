@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
 const { CHAINS, collectItems, readPosition, getPrices, getWalletBalances, valueInStable } = require("./lib");
+const { readProvider, mapLimit, singleFlight } = require("./rpc");
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
@@ -30,7 +31,6 @@ const POOL_ABI = [
   "function observe(uint32[] secondsAgos) view returns(int56[] tickCumulatives,uint160[] secondsPerLiquidityCumulativeX128s)",
 ];
 const ERC20_ABI = ["function decimals() view returns(uint8)"];
-const chartProviders = {};
 
 let snapshot = {};
 if (fs.existsSync(SNAPSHOT_FILE)) {
@@ -133,8 +133,7 @@ function incomeDays(count = 30) {
 }
 
 function chartProvider(chain) {
-  if (!chartProviders[chain]) chartProviders[chain] = new ethers.JsonRpcProvider(CHAINS[chain].rpc);
-  return chartProviders[chain];
+  return readProvider(chain, CHAINS[chain].rpc);
 }
 
 async function readDexSpot(chart) {
@@ -292,14 +291,10 @@ function sendJson(res, status, obj) {
   res.end(body);
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-
-  if (url.pathname === "/api/positions") {
-    try {
+const refreshDashboard = singleFlight(async () => {
       const items = collectItems();
       const [data, prices, wallets, marketData] = await Promise.all([
-        Promise.all(items.map(async (item) => {
+        mapLimit(items, 3, async (item) => {
           try {
             return await readPosition(item);
           } catch (error) {
@@ -307,7 +302,7 @@ const server = http.createServer(async (req, res) => {
             console.warn(`Не удалось обновить ${item.id}: ${error.shortMessage || error.message}`);
             return null;
           }
-        })),
+        }),
         getPrices(),
         getWalletBalances(),
         getMarketData(),
@@ -317,7 +312,7 @@ const server = http.createServer(async (req, res) => {
       filtered.forEach(enrich);
       recordIncome(filtered);
       saveSnapshot();
-      sendJson(res, 200, {
+      return {
         positions: filtered,
         prices,
         wallets,
@@ -325,7 +320,15 @@ const server = http.createServer(async (req, res) => {
         rubPerUsd: marketData.rubPerUsd,
         incomeDays: incomeDays(),
         updated: new Date().toISOString(),
-      });
+      };
+});
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  if (url.pathname === "/api/positions") {
+    try {
+      sendJson(res, 200, await refreshDashboard());
     } catch (e) {
       sendJson(res, 500, { error: e.shortMessage || e.message });
     }
