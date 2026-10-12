@@ -2,7 +2,8 @@
 const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
-const { CHAINS, promptHidden } = require("./lib");
+const { CHAINS } = require("./lib");
+const { publicArgs, readMasterPassword } = require("./password-input");
 
 const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const AAVE_POOL = "0x794a61358d6845594f94dc1db02a252b5b4814ad";
@@ -19,7 +20,7 @@ function usage() {
 
 function parseArgs() {
   const dryRun = process.argv.includes("--dry-run");
-  const args = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
+  const args = publicArgs().filter((arg) => arg !== "--dry-run");
   const walletIndex = args.indexOf("--wallet");
   if (walletIndex === -1 || !args[walletIndex + 1]) {
     usage();
@@ -63,7 +64,7 @@ async function main() {
   console.log(`симуляция успешна; оценка газа: ${estimatedGas.toString()}`);
   if (dryRun) return console.log("dry-run: транзакция не отправлена");
 
-  const password = await promptHidden("мастер-пароль: ");
+  const password = await readMasterPassword("мастер-пароль: ");
   const signer = (await ethers.Wallet.fromEncryptedJson(selected.keystore, password)).connect(provider);
   const pool = new ethers.Contract(AAVE_POOL, AAVE_ABI, signer);
   const tx = await pool.borrow(...params, { gasLimit: estimatedGas * 120n / 100n });

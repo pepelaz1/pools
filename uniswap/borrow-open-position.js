@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { ethers } = require("ethers");
+const { promptHidden } = require("./lib");
 
 function parseArgs(argv) {
   if (argv.length === 1 && argv[0] === "--help") return { help: true };
@@ -28,12 +29,27 @@ function parseArgs(argv) {
     amount: ethers.formatUnits(ethers.parseUnits(amount, 6), 6), dryRun, resume, newJob };
 }
 
-function child(script, args) {
-  const result = spawnSync(process.execPath, [path.join(__dirname, script), ...args], {
-    cwd: __dirname, stdio: "inherit", shell: false,
+function child(script, args, password) {
+  return new Promise((resolve, reject) => {
+    const ipc = password !== undefined;
+    const processChild = spawn(process.execPath,
+      [path.join(__dirname, script), ...args, ...(ipc ? ["--password-ipc"] : [])], {
+        cwd: __dirname, stdio: ipc ? ["inherit", "inherit", "inherit", "ipc"] : "inherit", shell: false,
+      });
+    let sent = false;
+    processChild.on("message", message => {
+      if (!ipc || sent || message?.type !== "password-request") return;
+      sent = true;
+      processChild.send({ type: "master-password", value: password }, error => {
+        if (error) { processChild.kill(); reject(new Error("Password delivery failed")); }
+      });
+    });
+    processChild.once("error", reject);
+    processChild.once("close", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${script} did not finish successfully (${signal || code})`));
+    });
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`${script} did not finish successfully (${result.signal || result.status})`);
 }
 
 function sameJob(a, b) {
@@ -41,8 +57,7 @@ function sameJob(a, b) {
 }
 
 // Mark each stage before invoking a child: an interrupted run must never borrow twice.
-function workflow(job, previous, options, run, save) {
-  let state = previous;
+function validateJob(job, state, options) {
   if (options.resume) {
     if (!state || !sameJob(state, job) || state.stage !== "borrowed") {
       throw new Error("Resume allowed only after a confirmed borrow and before opening started. Inspect transactions/positions before any manual retry.");
@@ -50,22 +65,27 @@ function workflow(job, previous, options, run, save) {
   } else if (state && !(options.newJob && state.stage === "complete")) {
     throw new Error(`Existing job stage: ${state.stage}. Refusing a duplicate borrow. Use --resume only for stage borrowed, or --new-job after complete.`);
   }
+}
+
+async function workflow(job, previous, options, run, save) {
+  let state = previous;
+  validateJob(job, state, options);
   const saveStage = stage => {
     state = { ...job, stage, updatedAt: new Date().toISOString() };
     save(state);
   };
   if (!options.resume) {
     saveStage("borrowing");
-    run("borrow-aave-usdc.js", ["--wallet", job.address, job.amount]);
+    await run("borrow-aave-usdc.js", ["--wallet", job.address, job.amount]);
     saveStage("borrowed");
   }
   saveStage("opening");
-  run("open-position.js", ["--wallet", job.address, job.lower, job.upper, job.amount, "arbitrum"]);
+  await run("open-position.js", ["--wallet", job.address, job.lower, job.upper, job.amount, "arbitrum"]);
   saveStage("complete");
   return state;
 }
 
-function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
     console.log("node borrow-open-position.js --wallet <wallet> <lower> <upper> <USDC> [--dry-run]");
@@ -82,9 +102,9 @@ function main(argv = process.argv.slice(2)) {
   const job = { address, lower: options.lower, upper: options.upper, amount: options.amount };
   console.log(`Aave borrow -> Uniswap ETH/USDC; Arbitrum; wallet ${matches[0].name} (${address})`);
   console.log(`Borrow ${job.amount} USDC; range ${job.lower}-${job.upper}; investment ${job.amount} USDC`);
-  console.log("Borrowing and opening are separate operations. Password is requested by each script.");
+  console.log("Borrowing and opening are separate operations. Password is requested once before both stages.");
   if (options.dryRun) {
-    child("borrow-aave-usdc.js", ["--dry-run", "--wallet", address, job.amount]);
+    await child("borrow-aave-usdc.js", ["--dry-run", "--wallet", address, job.amount]);
     console.log("Dry-run checked borrowing only. Opening requires funds and fresh pool quotes; no transactions sent.");
     return;
   }
@@ -97,11 +117,19 @@ function main(argv = process.argv.slice(2)) {
     lockFd = fs.openSync(lock, "wx");
     fs.writeFileSync(lockFd, String(process.pid));
     const previous = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+    validateJob(job, previous, options);
+    if (!matches[0].keystore) throw new Error("Source wallet keystore missing");
+    let password = await promptHidden("мастер-пароль: ");
+    if ((await ethers.Wallet.fromEncryptedJson(matches[0].keystore, password)).address !== address) {
+      throw new Error("Keystore address mismatch");
+    }
     const save = state => {
       fs.writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 2));
       fs.renameSync(`${file}.tmp`, file);
     };
-    workflow(job, previous, options, child, save);
+    try {
+      await workflow(job, previous, options, (script, args) => child(script, args, password), save);
+    } finally { password = undefined; }
     console.log("Complete: loan received and opening script finished. See positions.json and the mint receipt.");
   } catch (error) {
     console.error(`Job journal: ${file}`);
@@ -113,9 +141,9 @@ function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) {
-  try { main(); } catch (error) {
+  main().catch(error => {
     console.error(`error: ${error.shortMessage || error.message}`);
     process.exitCode = 1;
-  }
+  });
 }
 module.exports = { parseArgs, workflow };

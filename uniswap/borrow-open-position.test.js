@@ -11,40 +11,40 @@ test("parse workflow parameters and reject unsafe/ambiguous input", () => {
     ["--wallet", "7d13", "2400", "2500", "250", "avalanche"]]) assert.throws(() => parseArgs(args));
 });
 
-test("borrow precedes opening, with committed stages before each operation", () => {
+test("borrow precedes opening, with committed stages before each operation", async () => {
   const stages = [], scripts = [];
-  workflow(job, null, {}, (script) => { scripts.push(script); }, state => stages.push(state.stage));
+  await workflow(job, null, {}, (script) => { scripts.push(script); }, state => stages.push(state.stage));
   assert.deepEqual(scripts, ["borrow-aave-usdc.js", "open-position.js"]);
   assert.deepEqual(stages, ["borrowing", "borrowed", "opening", "complete"]);
 });
 
-test("borrow failure prevents opening and blocks blind rerun", () => {
+test("borrow failure prevents opening and blocks blind rerun", async () => {
   let last, calls = 0;
-  assert.throws(() => workflow(job, null, {}, () => { calls++; throw new Error("borrow failure"); }, s => { last = s; }));
+  await assert.rejects(workflow(job, null, {}, () => { calls++; throw new Error("borrow failure"); }, s => { last = s; }));
   assert.equal(calls, 1);
   assert.equal(last.stage, "borrowing");
-  assert.throws(() => workflow(job, last, {}, () => calls++, () => {}));
+  await assert.rejects(workflow(job, last, {}, () => calls++, () => {}));
   assert.equal(calls, 1);
 });
 
-test("failed opening preserves stage and cannot resume or borrow automatically", () => {
+test("failed opening preserves stage and cannot resume or borrow automatically", async () => {
   let last;
-  assert.throws(() => workflow(job, null, {}, script => {
+  await assert.rejects(workflow(job, null, {}, script => {
     if (script === "open-position.js") throw new Error("mint failure");
   }, s => { last = s; }));
   assert.equal(last.stage, "opening");
-  assert.throws(() => workflow(job, last, { resume: true }, () => assert.fail(), () => {}));
+  await assert.rejects(workflow(job, last, { resume: true }, () => assert.fail(), () => {}));
 });
 
-test("resume skips borrowing only for matching confirmed job", () => {
+test("resume skips borrowing only for matching confirmed job", async () => {
   const scripts = [];
-  workflow(job, { ...job, stage: "borrowed" }, { resume: true }, script => scripts.push(script), () => {});
+  await workflow(job, { ...job, stage: "borrowed" }, { resume: true }, script => scripts.push(script), () => {});
   assert.deepEqual(scripts, ["open-position.js"]);
-  assert.throws(() => workflow(job, { ...job, amount: "500.0", stage: "borrowed" }, { resume: true }, () => assert.fail(), () => {}));
+  await assert.rejects(workflow(job, { ...job, amount: "500.0", stage: "borrowed" }, { resume: true }, () => assert.fail(), () => {}));
 });
 
-test("another loan after completion requires explicit new-job", () => {
+test("another loan after completion requires explicit new-job", async () => {
   const previous = { ...job, stage: "complete" };
-  assert.throws(() => workflow(job, previous, {}, () => assert.fail(), () => {}));
-  assert.equal(workflow(job, previous, { newJob: true }, () => {}, () => {}).stage, "complete");
+  await assert.rejects(workflow(job, previous, {}, () => assert.fail(), () => {}));
+  assert.equal((await workflow(job, previous, { newJob: true }, () => {}, () => {})).stage, "complete");
 });

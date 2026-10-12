@@ -2,7 +2,8 @@
 const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
-const { CHAINS, promptHidden } = require("./lib");
+const { CHAINS } = require("./lib");
+const { publicArgs, readMasterPassword } = require("./password-input");
 
 const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const POSITIONS_FILE = path.join(__dirname, "positions.json");
@@ -40,7 +41,7 @@ function usage() {
 }
 
 function parseArgs() {
-  const args = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
+  const args = publicArgs().filter((arg) => arg !== "--dry-run");
   const walletFlag = args.indexOf("--wallet");
   if (walletFlag === -1 || !args[walletFlag + 1]) {
     console.error("укажите кошелёк: --wallet <имя|адрес>");
@@ -97,7 +98,7 @@ async function main() {
   }
   if (!fs.existsSync(WALLETS_FILE)) throw new Error("wallets.json не найден. Сначала запустите: node setup.js");
 
-  const password = await promptHidden("мастер-пароль: ");
+  const password = await readMasterPassword("мастер-пароль: ");
   const wallets = JSON.parse(fs.readFileSync(WALLETS_FILE, "utf8")).wallets || [];
   const selectedWallet = wallets.find((item) =>
     item.name === walletSelector || item.address.toLowerCase() === walletSelector.toLowerCase(),
