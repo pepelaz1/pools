@@ -39,6 +39,9 @@
   .section, .section .grid { min-width:0; width:100%; }
   .section-two-columns { grid-column:span 2; }
   .section-two-columns .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .portfolio-sidebar { grid-column:5 / span 2; display:grid; gap:16px; align-content:start; min-width:0; }
+  .portfolio-sidebar .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:start; }
+  .wallet-column { display:flex; flex-direction:column; gap:16px; min-width:0; }
   .position-columns .card { width:100%; min-width:0; margin-inline:0; padding:10px; }
   .position-columns .row { gap:3px; font-size:12px; }
   .position-columns .row b { letter-spacing:-.15px; white-space:nowrap; }
@@ -50,8 +53,12 @@
   .section-head .chip { color:#6b7280; font-size:10px; white-space:nowrap; }
   .section-head .price { font-weight:600; font-size:11px; white-space:nowrap; }
   .wallet-card { margin-bottom:0; }
-  .wallet-total { font-size:15px; font-weight:700; margin:4px 0 8px; }
-  .wallet-rub { color:#1f2328; font-size:12px; font-weight:600; white-space:nowrap; }
+  .position-columns .wallet-card { padding-bottom:6px; }
+  .wallet-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; min-width:0; }
+  .wallet-head .pair { flex:0 0 auto; }
+  .wallet-head .sub { margin:0; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wallet-total { font-size:13px; font-weight:700; margin:3px 0 0; }
+  .wallet-rub { color:#1f2328; font-size:11px; font-weight:600; white-space:nowrap; }
   .section-head .wallet-rate { color:#1f2328; font-size:13px; font-weight:600; }
   .wallet-card .row { font-size:11px; }
   .wallet-label { display:flex; align-items:center; gap:5px; }
@@ -61,9 +68,14 @@
   .aave-health.watch { color:#bc4c00; }
   .aave-health.risk { color:#cf222e; }
   .aave-inline { margin-left:4px; white-space:nowrap; }
-  .aave-summary { gap:5px; font-size:9px; }
-  .aave-summary span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .aave-summary b { font-size:9px; white-space:nowrap; }
+  .aave-summary { padding:4px 0; border-bottom:1px solid #f0f1f2; overflow-x:auto; }
+  .aave-table { width:100%; border-collapse:collapse; font-size:10px; font-variant-numeric:tabular-nums; }
+  .aave-table th { color:#6b7280; font-size:9px; font-weight:400; }
+  .aave-table th, .aave-table td { padding:1px 3px; text-align:right; white-space:nowrap; }
+  .aave-table th:first-child, .aave-table td:first-child { padding-left:0; text-align:left; }
+  .aave-table th:last-child, .aave-table td:last-child { padding-right:0; }
+  .aave-table td { font-weight:600; }
+  .aave-table .wallet-chain-marker { display:inline-block; width:8px; height:8px; margin-right:4px; }
   .chart-card { padding:10px; margin-bottom:0; }
   .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
   .chart-head .pair { font-size:12px; }
@@ -114,6 +126,9 @@
   @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } .section-two-columns { grid-column:span 2; } }
   @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } .section-two-columns { grid-column:span 1; } .section-two-columns .grid { grid-template-columns:1fr; } }
   @media (max-width:600px) { .wrap { padding:12px; } }
+  @media (max-width:1000px) { .portfolio-sidebar { grid-column:1 / -1; } }
+  @media (max-width:700px) { .portfolio-sidebar .grid { grid-template-columns:1fr; } }
+  @media (max-width:700px) { .portfolio-sidebar .wallet-grid { display:flex; flex-direction:column; } .wallet-column { display:contents; } .wallet-grid .wallet-card { order:var(--wallet-order); } }
 </style>
 </head>
 <body>
@@ -143,12 +158,6 @@ function fmt(n, dec, max) {
 function fmtUsd(n) {
   if (!isFinite(n)) return "—";
   return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
-}
-function fmtCompactUsd(n) {
-  if (!isFinite(n)) return "—";
-  if (Math.abs(n) < 1000) return fmtUsd(n);
-  const digits = Math.abs(n) >= 10_000 ? 1 : 2;
-  return "$" + (n / 1000).toFixed(digits).replace(/\.?0+$/, "") + "k";
 }
 function fmtRub(n) {
   if (!isFinite(n)) return "";
@@ -299,7 +308,7 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
       });
     }
   }
-  const cards = [...perWallet.values()].map((wallet) => {
+  const cards = [...perWallet.values()].map((wallet, index) => {
     const visibleBalances = wallet.balances.filter((balance) => Number(balance.amount) !== 0 || Number(balance.healthFactor) > 0);
     const positionCount = positionCounts.get(wallet.address.toLowerCase()) || 0;
     if (!visibleBalances.length && !positionCount) return "";
@@ -315,26 +324,26 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
         : "";
       const balanceValue = Number(balance.amount) !== 0 ? `<b>${fmt(balance.amount, 18)} ${balance.symbol}</b>` : "";
       const debtUsd = Number(balance.aaveDebtUsd);
-      const collateralUsd = Number(balance.aaveCollateralUsd);
-      const availableBorrowUsd = Number(balance.aaveAvailableBorrowUsd);
+      const collateralUsd = balance.aaveCollateralUsd == null ? NaN : Number(balance.aaveCollateralUsd);
+      const availableBorrowUsd = balance.aaveAvailableBorrowUsd == null ? NaN : Number(balance.aaveAvailableBorrowUsd);
       const aaveSummary = debtUsd > 0
-        ? `<div class="row aave-summary"><span class="wallet-label" title="залог ${fmtUsd(collateralUsd)} · долг ${fmtUsd(debtUsd)}"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>зал./долг ${fmtCompactUsd(collateralUsd)}/${fmtCompactUsd(debtUsd)}</span><b>дост. ${fmtCompactUsd(availableBorrowUsd)}</b></div>`
+        ? `<div class="aave-summary"><table class="aave-table" aria-label="Aave ${balance.chainLabel}"><thead><tr><th scope="col"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>Залог</th><th scope="col">Долг</th><th scope="col">Доступно</th></tr></thead><tbody><tr><td>${fmtUsd(collateralUsd)}</td><td>${fmtUsd(debtUsd)}</td><td>${fmtUsd(availableBorrowUsd)}</td></tr></tbody></table></div>`
         : "";
       return `<div class="row"><span class="wallet-label"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || color}" title="${balance.chainLabel}"></span>${Number(balance.amount) !== 0 ? balance.symbol : ""}${healthInline}</span>${balanceValue}</div>${aaveSummary}`;
     }).join("");
     const rows = `${balanceRows}${positionCount ? `<div class="row"><span>LP-позиции</span><b>${positionCount}</b></div>` : ""}`;
     return `
-      <div class="card wallet-card">
-        <div class="card-head"><div><span class="pair">${wallet.name || "Кошелёк"}</span></div></div>
-        <div class="sub">${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}</div>
+      <div class="card wallet-card" style="--wallet-order:${index}">
+        <div class="wallet-head"><span class="pair">${wallet.name || "Кошелёк"}</span><span class="sub" title="${wallet.address}">${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}</span></div>
         <div class="rows">${rows}</div>
         ${total == null ? '<div class="wallet-total">Всего: —</div>' : total !== 0 ? `<div class="wallet-total">Всего: ${fmt(total, 18)} USD${isFinite(totalRub) ? ` <span class="wallet-rub">(${fmtRub(totalRub)})</span>` : ""}</div>` : positionCount ? '<div class="wallet-total">Всего: 0 USD</div>' : ""}
       </div>`;
-  }).join("");
+  }).filter(Boolean);
+  const walletColumns = [0, 1].map(column => `<div class="wallet-column">${cards.filter((_, index) => index % 2 === column).join("")}</div>`).join("");
   return `
     <div class="section">
       <div class="section-head"><span class="dot" style="background:${color}"></span><h2>Кошельки</h2>${hasRubRate ? `<span class="chip wallet-rate">1 USDC = ${fmtRub(Number(rubPerUsd))}</span>` : ""}</div>
-      <div class="grid">${cards}</div>
+      <div class="grid wallet-grid">${walletColumns}</div>
     </div>`;
 }
 
@@ -433,8 +442,7 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays) {
   for (const key of Object.keys(groups)) {
     if (!order.some((o) => o[0] === key)) columns += renderSection(key, key, groups[key], prices[key]);
   }
-  columns += renderWalletSection(wallets || [], rubPerUsd, positions);
-  columns += renderChartsSection(charts || {});
+  columns += `<div class="portfolio-sidebar">${renderWalletSection(wallets || [], rubPerUsd, positions)}${renderChartsSection(charts || {})}</div>`;
 
   document.getElementById("sections").innerHTML = `<div class="position-columns">${columns}</div>`;
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
