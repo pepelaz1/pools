@@ -102,11 +102,15 @@
   .chart-signal b.down { color:#bc4c00; }
   .card { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:12px; }
   .card.out { border-color:#d4a72c; }
-  .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  .card-head { display:flex; justify-content:space-between; align-items:center; gap:4px; flex-wrap:wrap; }
+  .pool-title { display:flex; align-items:center; gap:3px; min-width:0; white-space:nowrap; }
+  .pool-title .badge { font-size:9px; padding:2px 4px; }
+  .pool-title .pair { font-size:13px; }
+  .pool-title .fee { font-size:10px; }
   .badge { display:inline-block; padding:2px 7px; border-radius:5px; color:#fff; font-size:10px; font-weight:600; text-transform:capitalize; }
   .pair { font-weight:700; font-size:14px; }
   .fee { color:#6b7280; font-size:11px; }
-  .range-status { font-size:11px; font-weight:600; padding:2px 7px; border-radius:5px; }
+  .range-status { font-size:10px; font-weight:600; padding:2px 5px; border-radius:5px; white-space:nowrap; flex-shrink:0; }
   .range-status.in { background:#dafbe1; color:#1a7f37; }
   .range-status.outrange { background:#fff1e5; color:#bc4c00; }
   .sub { color:#6b7280; font-size:11px; margin:6px 0 8px; }
@@ -238,7 +242,7 @@ function renderCard(r) {
   return `
   <div class="card ${r.inRange ? "" : "out"}" id="card-${r.id}">
     <div class="card-head">
-      <div>${badge(r.dex, dexColor)} ${badge(r.chainLabel, chainColor)} <span class="pair">${r.displayPair || `${r.sym0}/${r.sym1}`}</span> <span class="fee">${(r.fee / 10000).toFixed(2)}%</span></div>
+      <div class="pool-title">${badge(r.dex, dexColor)} ${badge(r.chainLabel, chainColor)} <span class="pair">${r.displayPair || `${r.sym0}/${r.sym1}`}</span> <span class="fee">${(r.fee / 10000).toFixed(2)}%</span></div>
       <div class="range-status ${r.inRange ? "in" : "outrange"}">${rangeLabel}</div>
     </div>
     <div class="sub">${r.name || ""} · ${r.address.slice(0, 6)}…${r.address.slice(-4)} · ID ${r.tokenId}</div>
