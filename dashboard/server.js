@@ -4,6 +4,7 @@ const path = require("path");
 const { ethers } = require("ethers");
 const { CHAINS, collectItems, readPosition, getPrices, getWalletBalances, valueInStable } = require("./lib");
 const { readProvider, mapLimit, singleFlight } = require("./rpc");
+const { incomeWindow, summarizeIncome } = require("./income-summary");
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
@@ -114,20 +115,15 @@ function recordIncome(positions) {
     changed = true;
   }
 
-  const keepAfter = new Date();
-  keepAfter.setDate(keepAfter.getDate() - 30);
-  const oldest = incomeDayKey(keepAfter);
+  const oldest = incomeWindow(incomeDayKey(), 365).at(-1);
   for (const key of Object.keys(incomeHistory.days)) {
-    if (key < oldest) delete incomeHistory.days[key];
+    if (key < oldest) { delete incomeHistory.days[key]; changed = true; }
   }
   if (changed) saveIncomeHistory();
 }
 
 function incomeDays(count = 30) {
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() - index);
-    const key = incomeDayKey(date);
+  return incomeWindow(incomeDayKey(), count).map(key => {
     return { date: key, incomeUsd: incomeHistory.days[key]?.incomeUsd || 0 };
   });
 }
@@ -319,6 +315,7 @@ const refreshDashboard = singleFlight(async () => {
         charts: marketData.charts,
         rubPerUsd: marketData.rubPerUsd,
         incomeDays: incomeDays(),
+        incomeYear: summarizeIncome(incomeHistory.days, incomeDayKey()),
         updated: new Date().toISOString(),
       };
 });
