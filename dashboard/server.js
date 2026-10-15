@@ -5,6 +5,7 @@ const { ethers } = require("ethers");
 const { CHAINS, collectItems, readPosition, getPrices, getWalletBalances, valueInStable } = require("./lib");
 const { readProvider, mapLimit, singleFlight } = require("./rpc");
 const { incomeWindow, summarizeIncome } = require("./income-summary");
+const { comparePositions } = require("./position-sort");
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
@@ -304,7 +305,7 @@ const refreshDashboard = singleFlight(async () => {
         getMarketData(),
       ]);
       const filtered = data.filter(Boolean);
-      filtered.sort((a, b) => Number(b.inRange) - Number(a.inRange) || b.valueUsd - a.valueUsd);
+      filtered.sort(comparePositions);
       filtered.forEach(enrich);
       recordIncome(filtered);
       saveSnapshot();

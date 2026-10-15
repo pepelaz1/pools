@@ -7,25 +7,26 @@ const { promptHidden } = require("./lib");
 
 function parseArgs(argv) {
   if (argv.length === 1 && argv[0] === "--help") return { help: true };
-  let wallet, dryRun = false, resume = false, newJob = false;
+  let wallet, chain = "arbitrum", chainSet = false, dryRun = false, resume = false, newJob = false;
   const values = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--wallet" && !wallet && argv[i + 1] && !argv[i + 1].startsWith("--")) wallet = argv[++i];
+    else if (arg === "--chain" && !chainSet && argv[i + 1] && !argv[i + 1].startsWith("--")) { chain = argv[++i]; chainSet = true; }
     else if (arg === "--dry-run" && !dryRun) dryRun = true;
     else if (arg === "--resume" && !resume) resume = true;
     else if (arg === "--new-job" && !newJob) newJob = true;
     else if (arg.startsWith("--")) throw new Error(`Unknown or duplicate option: ${arg}`);
     else values.push(arg);
   }
-  if (!wallet || values.length !== 3 || (resume && newJob) || (dryRun && (resume || newJob))) {
-    throw new Error("Use --wallet <wallet> <lower> <upper> <USDC> [--dry-run|--resume|--new-job]");
+  if (!wallet || !["arbitrum", "avalanche"].includes(chain) || values.length !== 3 || (resume && newJob) || (dryRun && (resume || newJob))) {
+    throw new Error("Use --wallet <wallet> <lower> <upper> <USDC> [--chain arbitrum|avalanche] [--dry-run|--resume|--new-job]");
   }
   const [lower, upper, amount] = values;
   if (![lower, upper].every(v => /^\d+(\.\d+)?$/.test(v) && Number.isFinite(Number(v)) && Number(v) > 0)
-    || Number(upper) <= Number(lower)) throw new Error("Invalid ETH price range");
+    || Number(upper) <= Number(lower)) throw new Error("Invalid price range");
   if (!/^\d+(\.\d{1,6})?$/.test(amount) || ethers.parseUnits(amount, 6) <= 0n) throw new Error("Invalid USDC amount (maximum 6 decimals)");
-  return { wallet, lower: String(Number(lower)), upper: String(Number(upper)),
+  return { wallet, chain, lower: String(Number(lower)), upper: String(Number(upper)),
     amount: ethers.formatUnits(ethers.parseUnits(amount, 6), 6), dryRun, resume, newJob };
 }
 
@@ -53,7 +54,8 @@ function child(script, args, password) {
 }
 
 function sameJob(a, b) {
-  return ["address", "lower", "upper", "amount"].every(key => a[key] === b[key]);
+  return (a.chain || "arbitrum") === (b.chain || "arbitrum")
+    && ["address", "lower", "upper", "amount"].every(key => a[key] === b[key]);
 }
 
 // Mark each stage before invoking a child: an interrupted run must never borrow twice.
@@ -76,11 +78,11 @@ async function workflow(job, previous, options, run, save) {
   };
   if (!options.resume) {
     saveStage("borrowing");
-    await run("borrow-aave-usdc.js", ["--wallet", job.address, job.amount]);
+    await run("borrow-aave-usdc.js", ["--chain", job.chain || "arbitrum", "--wallet", job.address, job.amount]);
     saveStage("borrowed");
   }
   saveStage("opening");
-  await run("open-position.js", ["--wallet", job.address, job.lower, job.upper, job.amount, "arbitrum"]);
+  await run("open-position.js", ["--wallet", job.address, job.lower, job.upper, job.amount, job.chain || "arbitrum"]);
   saveStage("complete");
   return state;
 }
@@ -88,9 +90,10 @@ async function workflow(job, previous, options, run, save) {
 async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("node borrow-open-position.js --wallet <wallet> <lower> <upper> <USDC> [--dry-run]");
-    console.log("Example: node borrow-open-position.js --wallet 7d13 2400 2500 250");
-    console.log("Arbitrum only. --resume: confirmed borrow, opening not yet started. --new-job: start again after complete.");
+    console.log("node borrow-open-position.js --wallet <wallet> <lower> <upper> <USDC> [--chain arbitrum|avalanche] [--dry-run]");
+    console.log("Examples: node borrow-open-position.js --wallet 7d13 2400 2500 250");
+    console.log("          node borrow-open-position.js --wallet 697e 9 10 250 --chain avalanche");
+    console.log("--resume: confirmed borrow, opening not yet started. --new-job: start again after complete.");
     console.log("Two separate scripts/transactions; NOT atomic. A failed opening does not repay the loan.");
     return;
   }
@@ -99,18 +102,18 @@ async function main(argv = process.argv.slice(2)) {
     || w.address?.toLowerCase() === options.wallet.toLowerCase());
   if (matches.length !== 1) throw new Error("Source wallet missing or ambiguous");
   const address = ethers.getAddress(matches[0].address);
-  const job = { address, lower: options.lower, upper: options.upper, amount: options.amount };
-  console.log(`Aave borrow -> Uniswap ETH/USDC; Arbitrum; wallet ${matches[0].name} (${address})`);
+  const job = { address, chain: options.chain, lower: options.lower, upper: options.upper, amount: options.amount };
+  console.log(`Aave borrow -> Uniswap ${options.chain === "avalanche" ? "AVAX" : "ETH"}/USDC; ${options.chain}; wallet ${matches[0].name} (${address})`);
   console.log(`Borrow ${job.amount} USDC; range ${job.lower}-${job.upper}; investment ${job.amount} USDC`);
   console.log("Borrowing and opening are separate operations. Password is requested once before both stages.");
   if (options.dryRun) {
-    await child("borrow-aave-usdc.js", ["--dry-run", "--wallet", address, job.amount]);
+    await child("borrow-aave-usdc.js", ["--dry-run", "--chain", job.chain, "--wallet", address, job.amount]);
     console.log("Dry-run checked borrowing only. Opening requires funds and fresh pool quotes; no transactions sent.");
     return;
   }
   const directory = path.join(__dirname, "aave-lp-jobs");
   fs.mkdirSync(directory, { recursive: true });
-  const file = path.join(directory, `${address.toLowerCase()}.json`);
+  const file = path.join(directory, `${address.toLowerCase()}${job.chain === "arbitrum" ? "" : `-${job.chain}`}.json`);
   const lock = `${file}.lock`;
   let lockFd;
   try {

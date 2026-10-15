@@ -15,12 +15,16 @@ const AAVE_ABI = [
 ];
 
 function usage() {
-  console.log("использование: node borrow-aave-usdc.js [--dry-run] --wallet <имя|адрес> <сумма USDC>");
+  console.log("использование: node borrow-aave-usdc.js [--dry-run] [--chain arbitrum|avalanche] --wallet <имя|адрес> <сумма USDC>");
 }
 
-function parseArgs() {
-  const dryRun = process.argv.includes("--dry-run");
-  const args = publicArgs().filter((arg) => arg !== "--dry-run");
+function parseArgs(argv = publicArgs()) {
+  const dryRun = argv.includes("--dry-run");
+  const args = argv.filter((arg) => arg !== "--dry-run");
+  const chainIndex = args.indexOf("--chain");
+  const chain = chainIndex === -1 ? "arbitrum" : args[chainIndex + 1];
+  if (!(["arbitrum", "avalanche"].includes(chain))) throw new Error("укажите сеть: arbitrum или avalanche");
+  if (chainIndex !== -1) args.splice(chainIndex, 2);
   const walletIndex = args.indexOf("--wallet");
   if (walletIndex === -1 || !args[walletIndex + 1]) {
     usage();
@@ -32,26 +36,27 @@ function parseArgs() {
     usage();
     process.exit(1);
   }
-  return { dryRun, walletSelector, amount: args[0] };
+  return { dryRun, chain, walletSelector, amount: args[0] };
 }
 
 async function main() {
-  const { dryRun, walletSelector, amount } = parseArgs();
+  const { dryRun, chain, walletSelector, amount } = parseArgs();
   const wallets = JSON.parse(fs.readFileSync(WALLETS_FILE, "utf8")).wallets || [];
   const selected = wallets.find((item) => item.name === walletSelector || item.address.toLowerCase() === walletSelector.toLowerCase());
   if (!selected?.address) throw new Error(`кошелёк '${walletSelector}' не найден`);
 
-  const cfg = CHAINS.arbitrum;
-  const provider = new ethers.JsonRpcProvider(cfg.rpc);
+  const cfg = CHAINS[chain];
+  const provider = new ethers.JsonRpcProvider(cfg.rpc, cfg.chainId);
   const readPool = new ethers.Contract(AAVE_POOL, AAVE_ABI, provider);
   const amountRaw = ethers.parseUnits(amount, 6);
   const account = await readPool.getUserAccountData(selected.address);
   const debtUsd = Number(ethers.formatUnits(account[1], AAVE_BASE_DECIMALS));
   const availableUsd = Number(ethers.formatUnits(account[2], AAVE_BASE_DECIMALS));
   const hf = account[1] === 0n ? Infinity : Number(account[5]) / 1e18;
-  const nextHf = account[1] === 0n ? Infinity : hf * debtUsd / (debtUsd + Number(amount));
+  const nextHf = debtUsd + Number(amount) === 0 ? Infinity
+    : Number(ethers.formatUnits(account[0], AAVE_BASE_DECIMALS)) * Number(account[3]) / 10000 / (debtUsd + Number(amount));
 
-  console.log(`\nAave Arbitrum; кошелёк: ${selected.address}`);
+  console.log(`\nAave ${chain}; кошелёк: ${selected.address}`);
   console.log(`заем: ${amount} USDC (variable rate)`);
   console.log(`доступно по Aave: ${availableUsd.toFixed(2)} USD`);
   console.log(`HF: ${Number.isFinite(hf) ? hf.toFixed(2) : "∞"} -> ${Number.isFinite(nextHf) ? nextHf.toFixed(2) : "∞"}`);
@@ -73,7 +78,11 @@ async function main() {
   console.log("готово: USDC зачислены на кошелек");
 }
 
-main().catch((error) => {
-  console.error(`ошибка: ${error.shortMessage || error.message}`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`ошибка: ${error.shortMessage || error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { parseArgs };
