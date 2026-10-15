@@ -76,16 +76,22 @@
   .aave-table td { font-weight:600; }
   .aave-table .wallet-chain-marker { display:inline-block; width:8px; height:8px; margin-right:4px; }
   .wallet-table-wrap { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:5px 6px; overflow-x:auto; }
-  .wallet-table { width:100%; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+  .wallet-table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
   .wallet-table th { color:#6b7280; font-size:10px; font-weight:400; }
   .wallet-table th, .wallet-table td { padding:7px 2px; text-align:right; vertical-align:middle; white-space:nowrap; }
+  .wallet-table tbody th, .wallet-table tbody td { vertical-align:top; }
   .wallet-table th:first-child, .wallet-table td:first-child { text-align:left; padding-left:0; }
   .wallet-table th:last-child, .wallet-table td:last-child { padding-right:0; }
   .wallet-table tbody tr { border-top:1px solid #e1e4e8; }
   .wallet-table .wallet-name { font-size:13px; color:#000; }
-  .wallet-table .wallet-address { display:block; font-size:9px; color:#6b7280; margin-top:3px; }
-  .wallet-table .network-line { display:block; height:19px; line-height:19px; }
-  .wallet-table .wallet-chain-marker { display:inline-block; width:7px; height:7px; margin-right:4px; }
+  .wallet-table .wallet-id { display:flex; align-items:center; min-width:0; gap:4px; margin-top:3px; }
+  .wallet-table .wallet-address { min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:9px; color:#6b7280; }
+  .wallet-table .copy-address { display:inline-flex; flex:0 0 17px; align-items:center; justify-content:center; width:17px; height:17px; padding:0; border:0; background:transparent; color:#57606a; font-size:11px; line-height:1; cursor:pointer; }
+  .wallet-table .copy-address:hover { color:#0969da; }
+  .wallet-table .copy-address:focus-visible { outline:2px solid #0969da; outline-offset:2px; }
+  .wallet-table .network-line { display:flex; align-items:center; justify-content:flex-end; min-height:19px; line-height:19px; }
+  .wallet-table .balance-entry { display:inline-flex; align-items:center; gap:4px; }
+  .wallet-table .wallet-chain-marker { display:inline-block; width:7px; height:7px; flex:0 0 7px; }
   .wallet-table tfoot { border-top:2px solid #d0d7de; font-weight:700; }
   .chart-card { padding:10px; margin-bottom:0; }
   .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
@@ -138,11 +144,13 @@
   .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:600; color:#0969da; cursor:pointer; }
   .mini-btn:hover { background:#f6f8fa; }
   .mini-btn:disabled { opacity:.6; cursor:default; }
-  @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } .section-two-columns { grid-column:span 2; } }
+  @media (max-width:2400px) { .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } .portfolio-sidebar { grid-column:1 / -1; } }
+  @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .section-two-columns { grid-column:span 2; } }
   @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } .section-two-columns { grid-column:span 1; } .section-two-columns .grid { grid-template-columns:1fr; } }
   @media (max-width:600px) { .wrap { padding:12px; } }
   @media (max-width:1000px) { .portfolio-sidebar { grid-column:1 / -1; } }
   @media (max-width:700px) { .portfolio-sidebar .grid { grid-template-columns:1fr; } }
+  @media (max-width:700px) { .wallet-table { min-width:600px; } }
 </style>
 </head>
 <body>
@@ -310,6 +318,35 @@ function escapeWalletText(value) {
   return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 }
 
+async function copyWalletAddress(button) {
+  const address = button.dataset.address;
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API недоступен");
+    await navigator.clipboard.writeText(address);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = address;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    const copied = document.execCommand("copy");
+    input.remove();
+    if (!copied) {
+      button.title = "Не удалось скопировать адрес";
+      return;
+    }
+  }
+  button.textContent = "✓";
+  button.title = "Адрес скопирован";
+  button.setAttribute("aria-label", "Адрес скопирован");
+  setTimeout(() => {
+    button.textContent = "⧉";
+    button.title = "Копировать адрес";
+    button.setAttribute("aria-label", "Копировать адрес");
+  }, 1800);
+}
+
 function walletOverview(wallets, positions) {
   const perWallet = new Map();
   const positionCounts = new Map();
@@ -376,9 +413,10 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
       const hf = walletNumber(balance.healthFactor);
       return hf > 0 ? `<b class="aave-health ${hf >= 1.5 ? "safe" : hf >= 1.1 ? "watch" : "risk"}">${fmt(hf, 2)}</b>` : "—";
     };
-    const balanceCell = balance => `<span title="${escapeWalletText(balance.chainLabel)} · ${escapeWalletText(balance.symbol)}"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || "#6b7280"}"></span>${walletNumber(balance.amount) == null ? "—" : fmt(Number(balance.amount), 18)}</span>`;
+    const balanceCell = balance => `<span class="balance-entry" title="${escapeWalletText(balance.chainLabel)} · ${escapeWalletText(balance.symbol)}"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || "#6b7280"}"></span>${walletNumber(balance.amount) == null ? "—" : fmt(Number(balance.amount), 18)}</span>`;
     const rubTitle = wallet.total != null && walletNumber(rubPerUsd) > 0 ? ` (${fmtRub(wallet.total * Number(rubPerUsd))})` : "";
-    return `<tr class="wallet-record"><th scope="row" title="${escapeWalletText(wallet.address)}"><b class="wallet-name">${escapeWalletText(wallet.name || "Кошелёк")}</b><span class="wallet-address">${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}</span></th>
+    const address = escapeWalletText(wallet.address);
+    return `<tr class="wallet-record"><th scope="row" title="${address}"><b class="wallet-name">${escapeWalletText(wallet.name || "Кошелёк")}</b><span class="wallet-id"><span class="wallet-address">${escapeWalletText(wallet.address.slice(0, 4))}…${escapeWalletText(wallet.address.slice(-4))}</span><button class="copy-address" type="button" data-address="${address}" onclick="copyWalletAddress(this)" title="Копировать адрес" aria-label="Копировать адрес">⧉</button></span></th>
       <td>${networkCell(balanceCell)}</td><td>${networkCell(health)}</td>
       <td>${networkCell(b => usd(walletNumber(b.aaveCollateralUsd)))}</td>
       <td>${networkCell(b => usd(walletNumber(b.aaveDebtUsd)))}</td>
@@ -391,6 +429,7 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
     <div class="section">
       <div class="section-head"><span class="dot" style="background:#6b7280"></span><h2>Кошельки</h2>${rate}</div>
       <div class="wallet-table-wrap"><table class="wallet-table" aria-label="Кошельки и займы Aave">
+        <colgroup><col style="width:18%"><col style="width:12%"><col style="width:7%"><col style="width:14%"><col style="width:12%"><col style="width:14%"><col style="width:9%"><col style="width:14%"></colgroup>
         <thead><tr><th scope="col">Кошелёк</th><th scope="col" title="USDC/USDT по сетям; наведите на сумму для названия сети и токена">Баланс</th><th scope="col">hf</th><th scope="col">Залог, $</th><th scope="col">Долг, $</th><th scope="col">Дост., $</th><th scope="col">LP</th><th scope="col">Всего, $</th></tr></thead>
         <tbody>${rows}</tbody><tfoot><tr><th scope="row" colspan="3">Итого, USD</th><td>${usd(t.collateral)}</td><td>${usd(t.debt)}</td><td>${usd(t.available)}</td><td title="Всего LP (вне диапазона)">${t.positions} (${t.inactive})</td><td title="Свободные USDC/USDT по номиналу $1; без ETH, других токенов и LP">${usd(t.balance)}</td></tr></tfoot>
       </table></div>

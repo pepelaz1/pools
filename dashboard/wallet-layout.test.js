@@ -94,6 +94,19 @@ test("same address with different casing and duplicate chain do not double-count
   assert.equal(model.totals.balance, 3);
 });
 
+test("copy button uses the full wallet address", async () => {
+  const fullAddress = address(1);
+  const output = ui.renderWalletSection([group("arbitrum", [entry(1, 2, 20, 5)])], 84, []);
+  assert.ok(output.includes(`data-address="${fullAddress}"`));
+  let copied;
+  ui.navigator = { clipboard: { writeText: async value => { copied = value; } } };
+  ui.setTimeout = () => {};
+  const button = { dataset: { address: fullAddress }, setAttribute() {} };
+  await ui.copyWalletAddress(button);
+  assert.equal(copied, fullAddress);
+  assert.equal(button.title, "Адрес скопирован");
+});
+
 test("wallet names are escaped and 30-day income summary remains working", () => {
   const wallet = { ...entry(1, 2, 20, 5), name: "<script>" };
   const output = ui.renderWalletSection([group("arbitrum", [wallet])], 84, []);
