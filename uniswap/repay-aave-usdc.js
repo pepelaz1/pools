@@ -21,32 +21,40 @@ const TOKEN_ABI = [
 
 function parseArgs(argv) {
   if (argv.length === 1 && argv[0] === "--help") return { help: true };
-  let walletSelector, amount, all = false, dryRun = false;
+  let walletSelector, amount, chain = "arbitrum", chainSet = false, all = false, dryRun = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--wallet" && !walletSelector && argv[i + 1] && !argv[i + 1].startsWith("--")) {
       walletSelector = argv[++i];
+    } else if (arg === "--chain" && !chainSet && argv[i + 1] && ["arbitrum", "avalanche"].includes(argv[i + 1])) {
+      chain = argv[++i];
+      chainSet = true;
     } else if (arg === "--all" && !all) all = true;
     else if (arg === "--dry-run" && !dryRun) dryRun = true;
     else if (!arg.startsWith("--") && amount === undefined) amount = arg;
     else throw new Error(`Unknown or duplicate argument: ${arg}`);
   }
-  if (!walletSelector || (all && amount !== undefined) || (!all && amount === undefined)) {
-    throw new Error("Specify --wallet and either a USDC amount or --all");
+  if (!walletSelector || (all && amount !== undefined)) {
+    throw new Error("Specify --wallet; use an optional USDC amount or --all");
   }
-  if (!all && (!/^\d+(\.\d{1,6})?$/.test(amount) || ethers.parseUnits(amount, 6) <= 0n)) {
+  if (amount !== undefined && (!/^\d+(\.\d{1,6})?$/.test(amount) || ethers.parseUnits(amount, 6) <= 0n)) {
     throw new Error("USDC amount must be positive with at most 6 decimal places");
   }
-  return { walletSelector, all, dryRun, amount };
+  return { walletSelector, chain, all, dryRun, amount };
 }
 
 function repaymentPlan({ all, amount }, balance, debt) {
   if (debt === 0n) return null;
-  if (all) {
+  if (all || amount === undefined) {
     // Allow a small interest-accrual cushion between reading debt and mining.
     const cushion = (debt + 9999n) / 10000n;
-    if (balance < debt + cushion) throw new Error("Full repayment needs debt plus a 0.01% USDC cushion; use a fixed amount for partial repayment");
-    return { amountRaw: ethers.MaxUint256, approvalRaw: balance, expected: debt };
+    if (balance >= debt + cushion) {
+      return { amountRaw: ethers.MaxUint256, approvalRaw: balance, expected: debt };
+    }
+    if (all) throw new Error("Full repayment needs debt plus a 0.01% USDC cushion; use a fixed amount for partial repayment");
+    if (balance === 0n) throw new Error("No USDC available on wallet for repayment");
+    const spend = balance < debt ? balance : debt;
+    return { amountRaw: spend, approvalRaw: spend, expected: spend };
   }
   const requested = ethers.parseUnits(amount, 6);
   if (requested > balance) throw new Error("Insufficient USDC balance");
@@ -74,24 +82,25 @@ async function executeRepayment({ pool, token, asset, owner, plan, allowance, lo
   return tx.wait();
 }
 
-async function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2), passwordOverride) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("node repay-aave-usdc.js [--dry-run] --wallet <name|address> <USDC amount>");
-    console.log("node repay-aave-usdc.js [--dry-run] --wallet <name|address> --all");
-    console.log("Arbitrum native USDC variable debt only; no swaps, borrowing or collateral withdrawal.");
+    console.log("node repay-aave-usdc.js [--dry-run] [--chain arbitrum|avalanche] --wallet <name|address>  # use wallet USDC, up to debt");
+    console.log("node repay-aave-usdc.js [--dry-run] [--chain arbitrum|avalanche] --wallet <name|address> <USDC amount>");
+    console.log("node repay-aave-usdc.js [--dry-run] [--chain arbitrum|avalanche] --wallet <name|address> --all");
+    console.log("Native USDC variable debt only; no swaps, borrowing or collateral withdrawal. Default chain: arbitrum.");
     return;
   }
   const wallets = JSON.parse(fs.readFileSync(path.join(__dirname, "wallets.json"), "utf8")).wallets || [];
   const selector = options.walletSelector.toLowerCase();
   const selected = wallets.find(w => w.name?.toLowerCase() === selector || w.address?.toLowerCase() === selector);
   if (!selected?.address) throw new Error("Wallet not found");
-  const cfg = CHAINS.arbitrum;
-  const request = new ethers.FetchRequest(process.env.RPC_ARBITRUM || cfg.rpc);
+  const cfg = CHAINS[options.chain];
+  const request = new ethers.FetchRequest(process.env[`RPC_${options.chain.toUpperCase()}`] || cfg.rpc);
   request.timeout = 15000;
   const provider = new ethers.JsonRpcProvider(request, cfg.chainId);
   try {
-    if (Number((await provider.getNetwork()).chainId) !== cfg.chainId) throw new Error("RPC is not Arbitrum");
+    if (Number((await provider.getNetwork()).chainId) !== cfg.chainId) throw new Error(`RPC is not ${options.chain}`);
     const pool = new ethers.Contract(AAVE_POOL, POOL_ABI, provider);
     const token = new ethers.Contract(cfg.stable, TOKEN_ABI, provider);
     if (Number(await token.decimals()) !== 6) throw new Error("Unexpected USDC decimals");
@@ -106,24 +115,26 @@ async function main(argv = process.argv.slice(2)) {
     const debt = await debtToken.balanceOf(selected.address);
     const account = await pool.getUserAccountData(selected.address);
     const gasBalance = await provider.getBalance(selected.address);
-    console.log(`\nAave Arbitrum; wallet: ${selected.name || ""} (${selected.address})`);
+    console.log(`\nAave ${options.chain}; wallet: ${selected.name || ""} (${selected.address})`);
     console.log(`USDC balance: ${ethers.formatUnits(balance, 6)}`);
     console.log(`Variable USDC debt: ${ethers.formatUnits(debt, 6)}`);
     console.log(`HF: ${formatHf(account)}; ETH for gas: ${ethers.formatEther(gasBalance)}`);
     const plan = repaymentPlan(options, balance, debt);
     if (!plan) return console.log("No variable USDC debt; no transactions required.");
-    console.log(`Repayment: ${options.all ? "ALL (including accrued interest)" : options.amount + " USDC"}`);
+    const repaymentLabel = options.all ? "ALL (including accrued interest)"
+      : options.amount === undefined ? "wallet USDC balance (up to outstanding debt)" : `${options.amount} USDC`;
+    console.log(`Repayment: ${repaymentLabel}`);
     console.log(`Expected now: ${ethers.formatUnits(plan.expected, 6)} USDC`);
     const allowance = await token.allowance(selected.address, AAVE_POOL);
     if (allowance >= plan.approvalRaw) {
       const simulated = await pool.repay.staticCall(cfg.stable, plan.amountRaw, MODE,
         selected.address, { from: selected.address });
       console.log(`Simulation: ${ethers.formatUnits(simulated, 6)} USDC repaid`);
-    } else console.log("Approve required. Full repay simulation will run after confirmed approval.");
+    } else console.log("Approve required. Repay simulation will run after confirmed approval.");
     if (options.dryRun) return console.log("dry-run: no approvals or repayment transactions sent");
     if (gasBalance === 0n) throw new Error("ETH required for gas");
     if (!selected.keystore) throw new Error("Wallet keystore missing");
-    const password = await promptHidden("мастер-пароль: ");
+    const password = passwordOverride ?? await promptHidden("мастер-пароль: ");
     const signer = (await ethers.Wallet.fromEncryptedJson(selected.keystore, password)).connect(provider);
     if (signer.address.toLowerCase() !== selected.address.toLowerCase()) throw new Error("Keystore address mismatch");
     const receipt = await executeRepayment({ pool: pool.connect(signer), token: token.connect(signer),
@@ -153,4 +164,4 @@ if (require.main === module) main().catch(error => {
   console.error(`error: ${error.shortMessage || error.message}`);
   process.exitCode = 1;
 });
-module.exports = { parseArgs, repaymentPlan, executeRepayment };
+module.exports = { parseArgs, repaymentPlan, executeRepayment, main };

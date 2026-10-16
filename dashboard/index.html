@@ -93,6 +93,12 @@
   .wallet-table .balance-entry { display:inline-flex; align-items:center; gap:4px; }
   .wallet-table .wallet-chain-marker { display:inline-block; width:7px; height:7px; flex:0 0 7px; }
   .wallet-table tfoot { border-top:2px solid #d0d7de; font-weight:700; }
+  .wallet-table .wallet-equity-row td { padding:10px 0 7px; text-align:left; white-space:normal; }
+  .wallet-equity-summary { display:grid; gap:6px; }
+  .wallet-equity-step { display:flex; align-items:baseline; gap:4px; color:#57606a; font-size:12px; font-weight:400; white-space:nowrap; }
+  .wallet-equity-step b { color:#1f2328; font-size:13px; }
+  .wallet-equity-result, .wallet-equity-result b { color:#0969da; }
+  .wallet-equity-result b { font-size:15px; }
   .chart-card { padding:10px; margin-bottom:0; }
   .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
   .chart-head .pair { font-size:12px; }
@@ -390,12 +396,16 @@ function walletOverview(wallets, positions) {
       debt: sumWalletField(balances, "aaveDebtUsd"),
       available: sumWalletField(balances, "aaveAvailableBorrowUsd") };
   });
-  return { rows, totals: {
+  const totals = {
     balance: sumWalletField(rows, "total"), collateral: sumWalletField(rows, "collateral"),
     debt: sumWalletField(rows, "debt"), available: sumWalletField(rows, "available"),
     positions: rows.reduce((sum, row) => sum + row.positionCount, 0),
     inactive: rows.reduce((sum, row) => sum + row.inactiveCount, 0),
-  } };
+    liquidity: positions?.length ? sumWalletField(positions, "valueUsd") : 0,
+  };
+  totals.netDebt = totals.debt == null || totals.liquidity == null ? null : totals.debt - totals.liquidity;
+  totals.capital = totals.collateral == null || totals.netDebt == null ? null : totals.collateral - totals.netDebt;
+  return { rows, totals };
 }
 
 function renderWalletSection(wallets, rubPerUsd, positions) {
@@ -424,6 +434,7 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
       <td>${networkCell(b => `<span title="${escapeWalletText(b.chainLabel)}: всего LP (вне диапазона)">${b.positionCount} (${b.inactiveCount})</span>`)}</td><td title="${wallet.total == null ? "Нет данных" : fmt(wallet.total, 18) + " USD" + rubTitle}"><b>${usd(wallet.total)}</b></td></tr>`;
   }).join("");
   const t = overview.totals;
+  const money = value => value == null ? "—" : `$${usd(value)}`;
   const rate = walletNumber(rubPerUsd) > 0 ? `<span class="chip wallet-rate">1 USDC = ${fmtRub(Number(rubPerUsd))}</span>` : "";
   return `
     <div class="section">
@@ -431,7 +442,11 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
       <div class="wallet-table-wrap"><table class="wallet-table" aria-label="Кошельки и займы Aave">
         <colgroup><col style="width:18%"><col style="width:12%"><col style="width:7%"><col style="width:14%"><col style="width:12%"><col style="width:14%"><col style="width:9%"><col style="width:14%"></colgroup>
         <thead><tr><th scope="col">Кошелёк</th><th scope="col" title="USDC/USDT по сетям; наведите на сумму для названия сети и токена">Баланс</th><th scope="col">hf</th><th scope="col">Залог, $</th><th scope="col">Долг, $</th><th scope="col">Дост., $</th><th scope="col">LP</th><th scope="col">Всего, $</th></tr></thead>
-        <tbody>${rows}</tbody><tfoot><tr><th scope="row" colspan="3">Итого, USD</th><td>${usd(t.collateral)}</td><td>${usd(t.debt)}</td><td>${usd(t.available)}</td><td title="Всего LP (вне диапазона)">${t.positions} (${t.inactive})</td><td title="Свободные USDC/USDT по номиналу $1; без ETH, других токенов и LP">${usd(t.balance)}</td></tr></tfoot>
+        <tbody>${rows}</tbody><tfoot><tr><th scope="row" colspan="3">Итого, USD</th><td>${usd(t.collateral)}</td><td>${usd(t.debt)}</td><td>${usd(t.available)}</td><td title="Всего LP (вне диапазона)">${t.positions} (${t.inactive})</td><td title="Свободные USDC/USDT по номиналу $1; без ETH, других токенов и LP">${usd(t.balance)}</td></tr>
+        <tr class="wallet-equity-row"><td colspan="8"><div class="wallet-equity-summary" title="Оценка по текущей стоимости ликвидности LP без накопленных комиссий; не является доступной суммой вывода из Aave">
+          <span class="wallet-equity-step">Долг <b>${money(t.debt)}</b> − LP <b>${money(t.liquidity)}</b> = Чистый долг <b>${money(t.netDebt)}</b></span>
+          <span class="wallet-equity-step">Залог <b>${money(t.collateral)}</b> − <b title="Чистый долг">${money(t.netDebt)}</b> = <span class="wallet-equity-result">Расчётный капитал <b>${money(t.capital)}</b></span></span>
+        </div></td></tr></tfoot>
       </table></div>
     </div>`;
 }

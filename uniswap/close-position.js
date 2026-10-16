@@ -39,15 +39,24 @@ function removePosition(data, tokenId, chain) {
   fs.renameSync(temporary, POSITIONS_FILE);
 }
 
-async function main() {
-  const [tokenIdArg, requestedChain] = process.argv.slice(2);
+function closeComparison(opened, receivedRaw, stableDecimals) {
+  if (opened?.valueUsd == null) return null;
+  const initialUsd = Number(opened.valueUsd);
+  if (!Number.isFinite(initialUsd) || initialUsd <= 0) return null;
+  const receivedUsd = Number(ethers.formatUnits(receivedRaw, stableDecimals));
+  const differenceUsd = receivedUsd - initialUsd;
+  return { initialUsd, differenceUsd, differencePct: differenceUsd / initialUsd * 100 };
+}
+
+async function main(argv = process.argv.slice(2), passwordOverride) {
+  const [tokenIdArg, requestedChain] = argv;
   if (!tokenIdArg || (requestedChain && !CHAINS[requestedChain])) {
     usage();
-    process.exit(1);
+    throw new Error("invalid position or network");
   }
   if (!fs.existsSync(WALLETS_FILE) || !fs.existsSync(POSITIONS_FILE)) throw new Error("wallets.json или positions.json не найден");
   const positionsData = JSON.parse(fs.readFileSync(POSITIONS_FILE, "utf8"));
-  const matches = (positionsData.positions || []).filter((item) => String(item.tokenId) === tokenIdArg && (!requestedChain || item.chain === requestedChain));
+  const matches = (positionsData.positions || []).filter((item) => String(item.tokenId) === tokenIdArg && (!requestedChain || (item.chain || "arbitrum") === requestedChain));
   if (matches.length !== 1) throw new Error(matches.length ? "укажите сеть: arbitrum или avalanche" : "позиция не найдена в positions.json");
   const item = matches[0];
   const chain = item.chain || "arbitrum";
@@ -56,8 +65,9 @@ async function main() {
   const key = wallets.find((wallet) => wallet.address.toLowerCase() === item.address.toLowerCase());
   if (!key?.keystore) throw new Error("для позиции не найден keystore в wallets.json");
 
-  const password = await promptHidden("мастер-пароль: ");
+  const password = passwordOverride ?? await promptHidden("мастер-пароль: ");
   const provider = new ethers.JsonRpcProvider(cfg.rpc, cfg.chainId);
+  try {
   const wallet = (await ethers.Wallet.fromEncryptedJson(key.keystore, password)).connect(provider);
   const pm = new ethers.Contract(cfg.positionManager, PM_ABI, wallet);
   const tokenId = BigInt(tokenIdArg);
@@ -86,7 +96,9 @@ async function main() {
     await withdrawTx.wait();
   }
   console.log("collect...");
-  await (await pm.collect({ tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128 })).wait();
+  const collectTx = await pm.collect({ tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128 });
+  console.log(`collect tx: ${collectTx.hash}`);
+  await collectTx.wait();
 
   const nativeDelta = (await native.balanceOf(wallet.address)) - nativeBefore;
   if (nativeDelta > 0n) {
@@ -95,11 +107,9 @@ async function main() {
       await (await native.approve(cfg.swapRouter, nativeDelta)).wait();
     }
     const quoter = new ethers.Contract(cfg.quoter, QUOTER_ABI, provider);
-    let minimum = 0n;
-    try {
-      const quote = await quoter.quoteExactInputSingle.staticCall({ tokenIn: cfg.native, tokenOut: cfg.stable, amountIn: nativeDelta, fee: pos.fee, sqrtPriceLimitX96: 0 });
-      minimum = (quote[0] * 9900n) / 10000n;
-    } catch {}
+    const quote = await quoter.quoteExactInputSingle.staticCall({ tokenIn: cfg.native, tokenOut: cfg.stable, amountIn: nativeDelta, fee: pos.fee, sqrtPriceLimitX96: 0 });
+    const minimum = (quote[0] * 9900n) / 10000n;
+    if (minimum === 0n) throw new Error("No valid swap quote; refusing a swap without minimum output");
     const router = new ethers.Contract(cfg.swapRouter, ROUTER_ABI, wallet);
     const swapParams = { tokenIn: cfg.native, tokenOut: cfg.stable, fee: pos.fee, recipient: wallet.address, amountIn: nativeDelta, amountOutMinimum: minimum, sqrtPriceLimitX96: 0 };
     await router.exactInputSingle.staticCall(swapParams);
@@ -109,16 +119,27 @@ async function main() {
     await tx.wait();
   }
   try {
-    await (await pm.burn(tokenId)).wait();
+    const burnTx = await pm.burn(tokenId);
+    console.log(`burn tx: ${burnTx.hash}`);
+    await burnTx.wait();
   } catch (error) {
     console.warn("NFT не сожжён, но ликвидность забрана:", error.shortMessage || error.message);
   }
 
   removePosition(positionsData, tokenId, chain);
   const stableAfter = await stable.balanceOf(wallet.address);
+  const receivedRaw = stableAfter - stableBefore;
   console.log("позиция удалена из positions.json");
-  console.log(`готово. получено: ${ethers.formatUnits(stableAfter - stableBefore, stableDec)} ${cfg.stableName}`);
+  console.log(`готово. получено: ${ethers.formatUnits(receivedRaw, stableDec)} ${cfg.stableName}`);
+  const comparison = closeComparison(item.opened, receivedRaw, stableDec);
+  if (comparison) {
+    const sign = comparison.differenceUsd >= 0 ? "+" : "-";
+    console.log(`внесено в пул: ~$${comparison.initialUsd.toFixed(2)} (включая довнесения)`);
+    console.log(`разница с полученным: ${sign}$${Math.abs(comparison.differenceUsd).toFixed(4)} (${sign}${Math.abs(comparison.differencePct).toFixed(2)}%), без газа`);
+  } else console.log("внесено в пул и разница: нет исходных данных в positions.json");
   console.log(`остаток ${cfg.nativeName} от позиции: ${ethers.formatUnits((await native.balanceOf(wallet.address)) - nativeBefore, nativeDec)}`);
+  } finally { provider.destroy(); }
 }
 
-main().catch((error) => { console.error("ошибка:", error.shortMessage || error.message); process.exit(1); });
+if (require.main === module) main().catch((error) => { console.error("ошибка:", error.shortMessage || error.message); process.exitCode = 1; });
+module.exports = { main, closeComparison };

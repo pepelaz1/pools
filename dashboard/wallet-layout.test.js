@@ -68,6 +68,31 @@ test("missing RPC data is not treated as zero in aggregates", () => {
   assert.equal(ui.walletOverview([], []).totals.balance, null);
 });
 
+test("net debt and capital use LP liquidity without unclaimed income", () => {
+  const groups = [group("arbitrum", [entry(1, 0, 1000, 400)])];
+  const positions = [{ address:address(1), valueUsd:250, feeUsd:20, cake:{ usd:10 } }];
+  const totals = ui.walletOverview(groups, positions).totals;
+  assert.equal(totals.liquidity, 250);
+  assert.equal(totals.netDebt, 150);
+  assert.equal(totals.capital, 850);
+  const output = ui.renderWalletSection(groups, 84, positions);
+  assert.ok(output.includes('Долг <b>$400.00</b> − LP <b>$250.00</b> = Чистый долг <b>$150.00</b>'));
+  assert.ok(output.includes('Расчётный капитал <b>$850.00</b>'));
+});
+
+test("net debt keeps its sign and missing LP values do not understate it", () => {
+  const groups = [group("arbitrum", [entry(1, 0, 1000, 100)])];
+  const complete = [{ address:address(1), valueUsd:250 }];
+  assert.equal(ui.walletOverview(groups, complete).totals.netDebt, -150);
+  assert.equal(ui.walletOverview(groups, complete).totals.capital, 1150);
+  const incomplete = [{ address:address(1), valueUsd:250 }, { address:address(1) }];
+  const totals = ui.walletOverview(groups, incomplete).totals;
+  assert.equal(totals.liquidity, null);
+  assert.equal(totals.netDebt, null);
+  assert.equal(totals.capital, null);
+  assert.ok(ui.renderWalletSection(groups, 84, incomplete).includes('Расчётный капитал <b>—</b>'));
+});
+
 test("LP totals are separate for Arbitrum, Avalanche and BSC on the same wallet", () => {
   const groups = [group("arbitrum", [entry(1, 0, 0, 0)]),
     group("avalanche", [entry(1, 0, 0, 0)]), group("bsc", [entry(1, 0, 0, 0)])];
