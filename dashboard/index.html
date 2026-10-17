@@ -34,6 +34,7 @@
   .daily-income-weekday { color:#8c959f; font-size:7px; line-height:8px; }
   .income-averages { flex:0 0 auto; color:#57606a; font-size:10px; line-height:16px; white-space:nowrap; }
   .income-averages b { color:#1f2328; }
+  .income-averages .income-week b { color:#0969da; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
   .position-columns { display:grid; grid-template-columns:repeat(4, minmax(0, 1.2fr)) repeat(2, minmax(0, .7fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
   .section, .section .grid { min-width:0; width:100%; }
@@ -533,6 +534,18 @@ function renderDailyIncome(days, rubPerUsd) {
   }).join("");
 }
 
+function incomeSinceFriday(days, now = new Date()) {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone:"Asia/Tomsk", year:"numeric", month:"2-digit", day:"2-digit",
+  }).format(now);
+  const friday = new Date(`${today}T00:00:00Z`);
+  friday.setUTCDate(friday.getUTCDate() - (friday.getUTCDay() + 2) % 7);
+  const start = friday.toISOString().slice(0, 10);
+  const totalUsd = (days || []).filter(day => day.date >= start && day.date <= today)
+    .reduce((sum, day) => sum + (Number(day.incomeUsd) || 0), 0);
+  return { start, end:today, totalUsd };
+}
+
 function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, incomeYear) {
   prices = prices || {};
   const order = [["arbitrum", "Uniswap ETH/USDC"], ["avalanche", "Uniswap AVAX/USDC"], ["bsc", "PancakeSwap BNB/USDT"]];
@@ -565,11 +578,14 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, in
     ? `По сохранённой истории: ${incomeYear.recordedDays} дней из 365${incomeYear.firstRecordedDate ? ", начиная с " + incomeYear.firstRecordedDate : ""}. Пропущенные дни не восстановлены.`
     : "Перезапустите сервер для загрузки годовой истории.";
   const yearHtml = `Всего 365 дн.: <b title="${escapeWalletText(yearHint)}">${yearTotal == null ? "—" : fmtUsd(yearTotal)}${incomeYear?.recordedDays < 365 ? "*" : ""}</b>`;
+  const week = incomeSinceFriday(incomeDays);
+  const fridayLabel = `${week.start.slice(8, 10)}.${week.start.slice(5, 7)}`;
+  const weekHtml = `<span class="income-week" title="Комиссии и награды CAKE по дневной истории с ${week.start} 00:00 до текущего момента по времени Томска; текущий день включён">С пт ${fridayLabel}: <b>${fmtUsd(week.totalUsd)}</b></span>`;
   document.getElementById("statFees").textContent = `${fmtUsd(totalIncomeUsd)}${isFinite(incomeRub) ? ` (${fmtRub(incomeRub)})` : ""}`;
   document.getElementById("statRubRate").textContent = Number.isFinite(Number(rubPerUsd)) ? `1 USDC = ${fmtRub(Number(rubPerUsd))}` : "";
   document.getElementById("statDailyAverages").innerHTML = average30 == null
     ? ""
-    : `${yearHtml}<br>Всего 30 дн.: <b>${fmtUsd(income30)}</b><br>ср. 30 дн.: <b>${fmtUsd(average30)}</b>/день<br>ср. 7 дн.: <b>${fmtUsd(average7)}</b>/день`;
+    : `${weekHtml}<br>${yearHtml}<br>Всего 30 дн.: <b>${fmtUsd(income30)}</b><br>ср. 30 дн.: <b>${fmtUsd(average30)}</b>/день<br>ср. 7 дн.: <b>${fmtUsd(average7)}</b>/день`;
   document.getElementById("dailyIncome").innerHTML = renderDailyIncome(incomeDays, rubPerUsd);
   const inRange = positions.filter((r) => r.inRange).length;
   document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;

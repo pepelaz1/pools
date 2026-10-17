@@ -132,12 +132,38 @@ test("copy button uses the full wallet address", async () => {
   assert.equal(button.title, "Адрес скопирован");
 });
 
+test("Friday income resets at midnight in Tomsk and includes the current day only", () => {
+  const days = [
+    { date:"2026-10-09", incomeUsd:1 }, { date:"2026-10-15", incomeUsd:2 },
+    { date:"2026-10-16", incomeUsd:4 }, { date:"2026-10-17", incomeUsd:8 },
+  ];
+  const thursday = ui.incomeSinceFriday(days, new Date("2026-10-15T16:59:59Z"));
+  assert.equal(thursday.start, "2026-10-09");
+  assert.equal(thursday.totalUsd, 3);
+  const friday = ui.incomeSinceFriday(days, new Date("2026-10-15T17:00:00Z"));
+  assert.equal(friday.start, "2026-10-16");
+  assert.equal(friday.totalUsd, 4);
+  const saturday = ui.incomeSinceFriday(days, new Date("2026-10-16T17:00:00Z"));
+  assert.equal(saturday.end, "2026-10-17");
+  assert.equal(saturday.totalUsd, 12);
+});
+
+test("Friday income handles month and year boundaries", () => {
+  assert.equal(ui.incomeSinceFriday([], new Date("2026-11-01T00:00:00Z")).start, "2026-10-30");
+  const result = ui.incomeSinceFriday([
+    { date:"2027-12-31", incomeUsd:2 }, { date:"2028-01-01", incomeUsd:3 },
+  ], new Date("2028-01-01T00:00:00Z"));
+  assert.equal(result.start, "2027-12-31");
+  assert.equal(result.totalUsd, 5);
+});
+
 test("wallet names are escaped and 30-day income summary remains working", () => {
   const wallet = { ...entry(1, 2, 20, 5), name: "<script>" };
   const output = ui.renderWalletSection([group("arbitrum", [wallet])], 84, []);
   assert.ok(output.includes("&lt;script&gt;"));
   const days = Array.from({ length: 31 }, (_, n) => ({ date: "2026-10-13", incomeUsd: n === 30 ? 1000 : 2 }));
   ui.renderAll([], {}, [], {}, 84, days);
+  assert.match(elements.statDailyAverages.innerHTML, /С пт \d{2}\.\d{2}:/);
   assert.ok(elements.statDailyAverages.innerHTML.includes("$60.00"));
   assert.ok(!elements.statDailyAverages.innerHTML.includes("$1,060.00"));
   ui.renderAll([], {}, [], {}, 84, days, {
