@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
 const { CHAINS, promptHidden } = require("./lib");
+const { withdrawnPrincipal, principalProceeds, recordCloseIncome } = require("../close-income");
 
 const WALLETS_FILE = path.join(__dirname, "wallets.json");
 const POSITIONS_FILE = path.join(__dirname, "positions.json");
@@ -15,6 +16,7 @@ const ERC20_ABI = [
   "function approve(address,uint256) returns (bool)",
 ];
 const PM_ABI = [
+  "event DecreaseLiquidity(uint256 indexed tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
   "function positions(uint256) view returns(uint96 nonce,address operator,address token0,address token1,uint24 fee,int24 tickLower,int24 tickUpper,uint128 liquidity,uint256 feeGrowthInside0LastX128,uint256 feeGrowthInside1LastX128,uint128 tokensOwed0,uint128 tokensOwed1)",
   "function ownerOf(uint256) view returns(address)",
   "function decreaseLiquidity(tuple(uint256 tokenId,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,uint256 deadline) params) returns(uint256 amount0,uint256 amount1)",
@@ -86,6 +88,7 @@ async function main(argv = process.argv.slice(2), passwordOverride) {
   console.log(`\nсеть: ${chain}; кошелёк: ${wallet.address}`);
   console.log(`закрываю позицию ${tokenId}\n`);
 
+  let principal = null;
   if (pos.liquidity > 0n) {
     console.log("withdraw...");
     const withdrawParams = { tokenId, liquidity: pos.liquidity, amount0Min: 0, amount1Min: 0, deadline: Math.floor(Date.now() / 1000) + 1800 };
@@ -93,13 +96,15 @@ async function main(argv = process.argv.slice(2), passwordOverride) {
     const withdrawGas = await pm.decreaseLiquidity.estimateGas(withdrawParams);
     const withdrawTx = await pm.decreaseLiquidity(withdrawParams, { gasLimit: withdrawGas * 120n / 100n });
     console.log(`withdraw tx: ${withdrawTx.hash}`);
-    await withdrawTx.wait();
+    const receipt = await withdrawTx.wait();
+    principal = withdrawnPrincipal(receipt, pm.interface, cfg.positionManager, tokenId);
   }
   console.log("collect...");
   const collectTx = await pm.collect({ tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128 });
   console.log(`collect tx: ${collectTx.hash}`);
   await collectTx.wait();
 
+  const stableCollected = (await stable.balanceOf(wallet.address)) - stableBefore;
   const nativeDelta = (await native.balanceOf(wallet.address)) - nativeBefore;
   if (nativeDelta > 0n) {
     console.log(`swap ${cfg.nativeName} -> ${cfg.stableName}...`);
@@ -126,9 +131,21 @@ async function main(argv = process.argv.slice(2), passwordOverride) {
     console.warn("NFT не сожжён, но ликвидность забрана:", error.shortMessage || error.message);
   }
 
-  removePosition(positionsData, tokenId, chain);
   const stableAfter = await stable.balanceOf(wallet.address);
   const receivedRaw = stableAfter - stableBefore;
+  const stableIs0 = pos.token0.toLowerCase() === cfg.stable.toLowerCase();
+  const principalRaw = principal ? principalProceeds({
+    stablePrincipal:stableIs0 ? principal.amount0 : principal.amount1,
+    nativePrincipal:stableIs0 ? principal.amount1 : principal.amount0,
+    stableCollected, nativeCollected:nativeDelta, swapReceived:receivedRaw - stableCollected,
+  }) : null;
+  recordCloseIncome({
+    dex:"uniswap", chain, tokenId:String(tokenId), address:wallet.address,
+    initialUsd:item.opened?.valueUsd == null ? null : Number(item.opened.valueUsd),
+    receivedUsd:Number(ethers.formatUnits(receivedRaw, stableDec)),
+    principalReceivedUsd:principalRaw == null ? null : Number(ethers.formatUnits(principalRaw, stableDec)),
+  });
+  removePosition(positionsData, tokenId, chain);
   console.log("позиция удалена из positions.json");
   console.log(`готово. получено: ${ethers.formatUnits(receivedRaw, stableDec)} ${cfg.stableName}`);
   const comparison = closeComparison(item.opened, receivedRaw, stableDec);

@@ -6,3 +6,4 @@ dashboard/price-cache.json
 dashboard/income-history.json
 scalpbot/data/
 uniswap/aave-lp-jobs/
+closed-position-income/

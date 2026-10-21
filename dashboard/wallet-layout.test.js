@@ -7,8 +7,9 @@ const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
   .replace(/refreshAll\(\);\s*setInterval\(updatePositionAges, 60_000\);/, "");
 const elements = {};
-const ui = { console, document: {
+const ui = { console, AbortSignal, setInterval: () => {}, document: {
   getElementById: id => elements[id] ||= {}, querySelectorAll: () => [],
+  addEventListener: () => {},
 } };
 vm.createContext(ui);
 vm.runInContext(script, ui);
@@ -155,6 +156,39 @@ test("Friday income handles month and year boundaries", () => {
   ], new Date("2028-01-01T00:00:00Z"));
   assert.equal(result.start, "2027-12-31");
   assert.equal(result.totalUsd, 5);
+});
+
+test("Friday income adds closing profit once without changing fee histograms", () => {
+  const week = ui.incomeSinceFriday([]);
+  const days = [{ date:week.end, incomeUsd:38.18 }];
+  ui.renderAll([], {}, [], {}, 84, days, undefined, { ...week, totalUsd:2, unknownCount:0 });
+  assert.match(elements.statDailyAverages.innerHTML, /С пт \d{2}\.\d{2}: <b>\$40\.18<\/b>/);
+  assert.ok(elements.dailyIncome.innerHTML.includes("$38.18"));
+  assert.ok(!elements.dailyIncome.innerHTML.includes("$40.18"));
+  ui.renderAll([], {}, [], {}, 84, days, undefined, { ...week, totalUsd:null });
+  assert.match(elements.statDailyAverages.innerHTML, /С пт \d{2}\.\d{2}: <b>—<\/b>/);
+});
+
+test("background refresh includes a new closing gain without refreshing position cards", async () => {
+  const week = ui.incomeSinceFriday([]);
+  const previousSections = elements.sections.innerHTML;
+  let requests = 0;
+  ui.fetch = async url => {
+    assert.equal(url, "/api/income");
+    requests++;
+    return { ok:true, json:async () => ({
+      incomeDays:[{ date:week.end, incomeUsd:42.06 }],
+      closingIncome:{ ...week, totalUsd:0.06922356354587578 },
+    }) };
+  };
+  await ui.refreshIncome();
+  assert.equal(requests, 1);
+  assert.match(elements.statDailyAverages.innerHTML, /С пт \d{2}\.\d{2}: <b>\$42\.13<\/b>/);
+  assert.equal(elements.sections.innerHTML, previousSections);
+  const previousIncome = elements.statDailyAverages.innerHTML;
+  ui.fetch = async () => ({ ok:false });
+  await ui.refreshIncome();
+  assert.equal(elements.statDailyAverages.innerHTML, previousIncome);
 });
 
 test("wallet names are escaped and 30-day income summary remains working", () => {

@@ -1,4 +1,5 @@
 const { ethers } = require("ethers");
+const { withdrawnPrincipal, principalProceeds } = require("../close-income");
 
 const MAX_UINT128 = 2n ** 128n - 1n;
 
@@ -26,6 +27,7 @@ const ERC20_ABI = [
 ];
 
 const PM_ABI = [
+  "event DecreaseLiquidity(uint256 indexed tokenId,uint128 liquidity,uint256 amount0,uint256 amount1)",
   "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
   "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
   "function decreaseLiquidity(tuple(uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint256 amount0, uint256 amount1)",
@@ -384,6 +386,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   }
 
   // 3. decreaseLiquidity + collect withdrawn tokens
+  let principal = null;
   if (liquidity > 0n) {
     try {
       console.log("  забираю ликвидность...");
@@ -398,7 +401,8 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
       const decreaseGas = await pm.decreaseLiquidity.estimateGas(decreaseParams);
       const decreaseTx = await pm.decreaseLiquidity(decreaseParams, { gasLimit: decreaseGas * 120n / 100n });
       console.log(`  decrease tx: ${decreaseTx.hash}`);
-      await decreaseTx.wait();
+      const decreaseReceipt = await decreaseTx.wait();
+      principal = withdrawnPrincipal(decreaseReceipt, pm.interface, POSITION_MANAGER, tokenId);
       stats.steps.push("decreaseLiquidity");
       console.log("  ликвидность забрана");
 
@@ -419,6 +423,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   ]);
   const wbnbFromPosition = wbnbAfter > wbnbBefore ? wbnbAfter - wbnbBefore : 0n;
   const cakeFromPosition = cakeAfter > cakeBefore ? cakeAfter - cakeBefore : 0n;
+  const usdtAfterLiquidity = await usdtC.balanceOf(me);
 
   if (keepBnb) {
     // A position below the BNB/USDT range is all WBNB. Preserve that exposure,
@@ -461,6 +466,13 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   stats.usdtReceived = usdtFinal;
   stats.wbnbReceived = await wbnbC.balanceOf(me);
   stats.bnbBalance = await provider.getBalance(me);
+  stats.principalUsdtReceived = !keepBnb && principal && stats.wbnbReceived === wbnbBefore
+    ? principalProceeds({
+      stablePrincipal:wbnbIdx === 0 ? principal.amount1 : principal.amount0,
+      nativePrincipal:wbnbIdx === 0 ? principal.amount0 : principal.amount1,
+      stableCollected:usdtAfterLiquidity - usdtBefore,
+      nativeCollected:wbnbFromPosition, swapReceived:swappedWbnb,
+    }) : null;
 
   return stats;
 }

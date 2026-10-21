@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
 const { closePosition, RPC, prompt, promptHidden } = require("./lib");
+const { recordCloseIncome } = require("../close-income");
 
 const KEYSTORE = path.join(__dirname, "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
@@ -14,6 +15,23 @@ function removePosition(raw, tokenId) {
   const temporaryPath = `${POSITIONS}.tmp`;
   fs.writeFileSync(temporaryPath, `${JSON.stringify(data, null, 2)}\n`);
   fs.renameSync(temporaryPath, POSITIONS);
+}
+
+function closingSummary(opened, usdtBefore, usdtAfter, { keepBnb = false, complete = true } = {}) {
+  const initialUsd = opened?.valueUsd == null ? null : Number(opened.valueUsd);
+  const knownInitial = Number.isFinite(initialUsd) && initialUsd > 0;
+  const lines = [knownInitial
+    ? `внесено в пул: ~$${initialUsd.toFixed(2)} (включая довнесения)`
+    : "внесено в пул: нет исходных данных в positions.json"];
+  if (keepBnb) return [...lines, "разница в USD не рассчитана: позиция закрыта в BNB"];
+  const receivedRaw = usdtAfter - usdtBefore;
+  lines.unshift(`получено из позиции: ${ethers.formatUnits(receivedRaw, 18)} USDT (с комиссиями и проданными CAKE)`);
+  if (!complete) return [...lines, "разница не рассчитана: не подтверждена полная конвертация ликвидности в USDT"];
+  if (!knownInitial) return [...lines, "разница не рассчитана: нет исходной стоимости позиции"];
+  const difference = Number(ethers.formatUnits(receivedRaw, 18)) - initialUsd;
+  const sign = difference >= 0 ? "+" : "-";
+  lines.push(`разница с полученным: ${sign}$${Math.abs(difference).toFixed(4)} (${sign}${Math.abs(difference / initialUsd * 100).toFixed(2)}%), без газа`);
+  return lines;
 }
 
 async function main() {
@@ -82,10 +100,20 @@ async function main() {
     if (stats.status === "skip") {
       console.log(`пропуск: ${stats.reason}`);
     } else {
+      if (!keepBnb) recordCloseIncome({
+        dex:"pancakeswap", chain:"bsc", tokenId:String(item.tokenId), address:wallet.address,
+        initialUsd:item.opened?.valueUsd == null ? null : Number(item.opened.valueUsd),
+        receivedUsd:Number(ethers.formatUnits(stats.usdtReceived - usdtBefore, 18)),
+        principalReceivedUsd:stats.principalUsdtReceived == null ? null
+          : Number(ethers.formatUnits(stats.principalUsdtReceived, 18)),
+      });
       removePosition(raw, item.tokenId);
       console.log("позиция удалена из positions.json");
       console.log(`готово. шаги: ${stats.steps.join(", ")}`);
       console.log(`${keepBnb ? "BNB" : "USDT"} сейчас: ${ethers.formatUnits(keepBnb ? stats.bnbBalance : stats.usdtReceived, 18)}`);
+      for (const line of closingSummary(item.opened, usdtBefore, stats.usdtReceived, {
+        keepBnb, complete:stats.principalUsdtReceived != null,
+      })) console.log(line);
       if (stats.cakeReceived) {
         console.log(`собрано CAKE: ${ethers.formatUnits(stats.cakeReceived, 18)}`);
       }
@@ -107,7 +135,8 @@ async function main() {
   if (keepBnb) console.log(`изменение BNB с учётом газа: ${ethers.formatEther(balAfter - balBefore)}`);
 }
 
-main().catch((e) => {
+if (require.main === module) main().catch((e) => {
   console.error(e.shortMessage || e.message);
   process.exit(1);
 });
+module.exports = { closingSummary };

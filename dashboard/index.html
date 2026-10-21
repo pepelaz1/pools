@@ -546,7 +546,7 @@ function incomeSinceFriday(days, now = new Date()) {
   return { start, end:today, totalUsd };
 }
 
-function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, incomeYear) {
+function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, incomeYear, closingIncome) {
   prices = prices || {};
   const order = [["arbitrum", "Uniswap ETH/USDC"], ["avalanche", "Uniswap AVAX/USDC"], ["bsc", "PancakeSwap BNB/USDT"]];
   const groups = {};
@@ -565,6 +565,15 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, in
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
   const totalIncomeUsd = positions.reduce((sum, r) => sum + r.feeUsd + (r.cake ? r.cake.usd : 0), 0);
   const incomeRub = Number(rubPerUsd) * totalIncomeUsd;
+  document.getElementById("statFees").textContent = `${fmtUsd(totalIncomeUsd)}${isFinite(incomeRub) ? ` (${fmtRub(incomeRub)})` : ""}`;
+  document.getElementById("statRubRate").textContent = Number.isFinite(Number(rubPerUsd)) ? `1 USDC = ${fmtRub(Number(rubPerUsd))}` : "";
+  renderIncomePeriods(incomeDays, incomeYear, closingIncome);
+  const inRange = positions.filter((r) => r.inRange).length;
+  document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
+  updatePositionAges();
+}
+
+function renderIncomePeriods(incomeDays, incomeYear, closingIncome) {
   const averageIncome = (days) => days.length
     ? days.reduce((sum, day) => sum + (Number(day.incomeUsd) || 0), 0) / days.length
     : null;
@@ -580,16 +589,31 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, in
   const yearHtml = `Всего 365 дн.: <b title="${escapeWalletText(yearHint)}">${yearTotal == null ? "—" : fmtUsd(yearTotal)}${incomeYear?.recordedDays < 365 ? "*" : ""}</b>`;
   const week = incomeSinceFriday(incomeDays);
   const fridayLabel = `${week.start.slice(8, 10)}.${week.start.slice(5, 7)}`;
-  const weekHtml = `<span class="income-week" title="Комиссии и награды CAKE по дневной истории с ${week.start} 00:00 до текущего момента по времени Томска; текущий день включён">С пт ${fridayLabel}: <b>${fmtUsd(week.totalUsd)}</b></span>`;
-  document.getElementById("statFees").textContent = `${fmtUsd(totalIncomeUsd)}${isFinite(incomeRub) ? ` (${fmtRub(incomeRub)})` : ""}`;
-  document.getElementById("statRubRate").textContent = Number.isFinite(Number(rubPerUsd)) ? `1 USDC = ${fmtRub(Number(rubPerUsd))}` : "";
+  const closingGain = closingIncome == null ? 0 : closingIncome.start === week.start && closingIncome.end === week.end
+    ? walletNumber(closingIncome.totalUsd) : null;
+  const weekTotal = closingGain == null ? null : week.totalUsd + closingGain;
+  const weekHint = `С ${week.start} 00:00 по времени Томска: комиссии и CAKE ${fmtUsd(week.totalUsd)}; положительный результат закрытий без комиссий ${closingGain == null ? "нет данных" : fmtUsd(closingGain)}. Газ не вычтен.`
+    + (closingIncome?.unknownCount ? ` Не рассчитано закрытий: ${closingIncome.unknownCount} (нет исходных данных).` : "")
+    + (closingIncome == null ? " Перезапустите сервер для учёта закрытий." : "");
+  const weekHtml = `<span class="income-week" title="${escapeWalletText(weekHint)}">С пт ${fridayLabel}: <b>${weekTotal == null ? "—" : fmtUsd(weekTotal)}${closingIncome?.unknownCount ? "*" : ""}</b></span>`;
   document.getElementById("statDailyAverages").innerHTML = average30 == null
     ? ""
     : `${weekHtml}<br>${yearHtml}<br>Всего 30 дн.: <b>${fmtUsd(income30)}</b><br>ср. 30 дн.: <b>${fmtUsd(average30)}</b>/день<br>ср. 7 дн.: <b>${fmtUsd(average7)}</b>/день`;
-  document.getElementById("dailyIncome").innerHTML = renderDailyIncome(incomeDays, rubPerUsd);
-  const inRange = positions.filter((r) => r.inRange).length;
-  document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
-  updatePositionAges();
+  document.getElementById("dailyIncome").innerHTML = renderDailyIncome(incomeDays);
+}
+
+let refreshingIncome = false;
+async function refreshIncome() {
+  if (refreshingIncome || document.hidden) return;
+  refreshingIncome = true;
+  try {
+    const response = await fetch("/api/income", { cache:"no-store", signal:AbortSignal.timeout(10000) });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!data.error) renderIncomePeriods(data.incomeDays, data.incomeYear, data.closingIncome);
+  } catch {
+    // Preserve the last values while the local server is temporarily unavailable.
+  } finally { refreshingIncome = false; }
 }
 
 async function refreshAll() {
@@ -599,7 +623,7 @@ async function refreshAll() {
     const res = await fetch("/api/positions");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    renderAll(data.positions, data.prices, data.wallets, data.charts, data.rubPerUsd, data.incomeDays, data.incomeYear);
+    renderAll(data.positions, data.prices, data.wallets, data.charts, data.rubPerUsd, data.incomeDays, data.incomeYear, data.closingIncome);
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
     alert("Ошибка: " + e.message);
@@ -631,6 +655,10 @@ async function refreshOne(id) {
 
 refreshAll();
 setInterval(updatePositionAges, 60_000);
+setInterval(refreshIncome, 15_000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshIncome();
+});
 </script>
 </body>
 </html>

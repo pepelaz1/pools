@@ -6,6 +6,7 @@ const { CHAINS, collectItems, readPosition, getPrices, getWalletBalances, valueI
 const { readProvider, mapLimit, singleFlight } = require("./rpc");
 const { incomeWindow, summarizeIncome } = require("./income-summary");
 const { comparePositions } = require("./position-sort");
+const { closingIncomeSinceFriday } = require("../close-income");
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, "index.html");
@@ -127,6 +128,15 @@ function incomeDays(count = 30) {
   return incomeWindow(incomeDayKey(), count).map(key => {
     return { date: key, incomeUsd: incomeHistory.days[key]?.incomeUsd || 0 };
   });
+}
+
+function incomeSummary() {
+  const today = incomeDayKey();
+  return {
+    incomeDays:incomeDays(),
+    incomeYear:summarizeIncome(incomeHistory.days, today),
+    closingIncome:closingIncomeSinceFriday(today),
+  };
 }
 
 function chartProvider(chain) {
@@ -315,14 +325,20 @@ const refreshDashboard = singleFlight(async () => {
         wallets,
         charts: marketData.charts,
         rubPerUsd: marketData.rubPerUsd,
-        incomeDays: incomeDays(),
-        incomeYear: summarizeIncome(incomeHistory.days, incomeDayKey()),
+        ...incomeSummary(),
         updated: new Date().toISOString(),
       };
 });
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  if (url.pathname === "/api/income") {
+    res.setHeader("Cache-Control", "no-store");
+    try { sendJson(res, 200, incomeSummary()); }
+    catch (error) { sendJson(res, 500, { error:error.message }); }
+    return;
+  }
 
   if (url.pathname === "/api/positions") {
     try {
