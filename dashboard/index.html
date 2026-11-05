@@ -91,9 +91,14 @@
   .wallet-table .copy-address:hover { color:#0969da; }
   .wallet-table .copy-address:focus-visible { outline:2px solid #0969da; outline-offset:2px; }
   .wallet-table .network-line { display:flex; align-items:center; justify-content:flex-end; min-height:19px; line-height:19px; }
-  .wallet-table .balance-entry { display:inline-flex; align-items:center; gap:4px; }
+  .wallet-table .balance-entry { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:100%; }
+  .wallet-table .wallet-balance-amount { min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .wallet-table .wallet-chain-marker { display:inline-block; width:7px; height:7px; flex:0 0 7px; }
   .wallet-table tfoot { border-top:2px solid #d0d7de; font-weight:700; }
+  .wallet-table .wallet-total-row td { padding:9px 0; white-space:normal; }
+  .wallet-totals { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; text-align:right; }
+  .wallet-totals-label { flex:1 0 72px; text-align:left; color:#6b7280; font-size:10px; font-weight:400; }
+  .wallet-total-value { flex:0 0 auto; padding-left:8px; border-left:1px solid #d0d7de; white-space:nowrap; }
   .wallet-table .wallet-equity-row td { padding:10px 0 7px; text-align:left; white-space:normal; }
   .wallet-equity-summary { display:grid; gap:6px; }
   .wallet-equity-step { display:flex; align-items:baseline; gap:4px; color:#57606a; font-size:12px; font-weight:400; white-space:nowrap; }
@@ -424,7 +429,10 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
       const hf = walletNumber(balance.healthFactor);
       return hf > 0 ? `<b class="aave-health ${hf >= 1.5 ? "safe" : hf >= 1.1 ? "watch" : "risk"}">${fmt(hf, 2)}</b>` : "—";
     };
-    const balanceCell = balance => `<span class="balance-entry" title="${escapeWalletText(balance.chainLabel)} · ${escapeWalletText(balance.symbol)}"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || "#6b7280"}"></span>${walletNumber(balance.amount) == null ? "—" : fmt(Number(balance.amount), 18)}</span>`;
+    const balanceCell = balance => {
+      const amount = walletNumber(balance.amount) == null ? "—" : fmt(Number(balance.amount), 18);
+      return `<span class="balance-entry" title="${escapeWalletText(balance.chainLabel)} · ${escapeWalletText(amount + " " + balance.symbol)}"><span class="wallet-chain-marker" style="background:${CHAIN_COLORS[balance.chain] || "#6b7280"}"></span><span class="wallet-balance-amount">${amount}</span></span>`;
+    };
     const rubTitle = wallet.total != null && walletNumber(rubPerUsd) > 0 ? ` (${fmtRub(wallet.total * Number(rubPerUsd))})` : "";
     const address = escapeWalletText(wallet.address);
     return `<tr class="wallet-record"><th scope="row" title="${address}"><b class="wallet-name">${escapeWalletText(wallet.name || "Кошелёк")}</b><span class="wallet-id"><span class="wallet-address">${escapeWalletText(wallet.address.slice(0, 4))}…${escapeWalletText(wallet.address.slice(-4))}</span><button class="copy-address" type="button" data-address="${address}" onclick="copyWalletAddress(this)" title="Копировать адрес" aria-label="Копировать адрес">⧉</button></span></th>
@@ -441,9 +449,16 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
     <div class="section">
       <div class="section-head"><span class="dot" style="background:#6b7280"></span><h2>Кошельки</h2>${rate}</div>
       <div class="wallet-table-wrap"><table class="wallet-table" aria-label="Кошельки и займы Aave">
-        <colgroup><col style="width:18%"><col style="width:12%"><col style="width:7%"><col style="width:14%"><col style="width:12%"><col style="width:14%"><col style="width:9%"><col style="width:14%"></colgroup>
+        <colgroup><col style="width:18%"><col style="width:16%"><col style="width:6%"><col style="width:13%"><col style="width:12%"><col style="width:14%"><col style="width:9%"><col style="width:12%"></colgroup>
         <thead><tr><th scope="col">Кошелёк</th><th scope="col" title="USDC/USDT по сетям; наведите на сумму для названия сети и токена">Баланс</th><th scope="col">hf</th><th scope="col">Залог, $</th><th scope="col">Долг, $</th><th scope="col">Дост., $</th><th scope="col">LP</th><th scope="col">Всего, $</th></tr></thead>
-        <tbody>${rows}</tbody><tfoot><tr><th scope="row" colspan="3">Итого, USD</th><td>${usd(t.collateral)}</td><td>${usd(t.debt)}</td><td>${usd(t.available)}</td><td title="Всего LP (вне диапазона)">${t.positions} (${t.inactive})</td><td title="Свободные USDC/USDT по номиналу $1; без ETH, других токенов и LP">${usd(t.balance)}</td></tr>
+        <tbody>${rows}</tbody><tfoot><tr class="wallet-total-row"><td colspan="8"><div class="wallet-totals" role="group" aria-label="Итоги по кошелькам в USD">
+          <span class="wallet-totals-label">Итого, USD</span>
+          <span class="wallet-total-value" title="Залог, USD">${usd(t.collateral)}</span>
+          <span class="wallet-total-value" title="Долг, USD">${usd(t.debt)}</span>
+          <span class="wallet-total-value" title="Доступно по Aave, USD">${usd(t.available)}</span>
+          <span class="wallet-total-value" title="Всего LP (вне диапазона)">${t.positions} (${t.inactive})</span>
+          <span class="wallet-total-value" title="Свободные USDC/USDT по номиналу $1; без ETH, других токенов и LP">${usd(t.balance)}</span>
+        </div></td></tr>
         <tr class="wallet-equity-row"><td colspan="8"><div class="wallet-equity-summary" title="Оценка по текущей стоимости ликвидности LP без накопленных комиссий; не является доступной суммой вывода из Aave">
           <span class="wallet-equity-step">Долг <b>${money(t.debt)}</b> − LP <b>${money(t.liquidity)}</b> = Чистый долг <b>${money(t.netDebt)}</b></span>
           <span class="wallet-equity-step">Залог <b>${money(t.collateral)}</b> − <b title="Чистый долг">${money(t.netDebt)}</b> = <span class="wallet-equity-result">Расчётный капитал <b>${money(t.capital)}</b></span></span>
