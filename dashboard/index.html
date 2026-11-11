@@ -16,9 +16,13 @@
   .btn:disabled { opacity:.7; cursor:default; }
   .ring { width:14px; height:14px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
   .ring.dark { border-color:rgba(0,0,0,.15); border-top-color:#0969da; }
+  .pool-loading { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; background:rgba(246,248,250,.65); cursor:progress; }
+  .pool-loading[hidden] { display:none; }
+  .pool-loading-box { display:flex; flex-direction:column; align-items:center; gap:12px; padding:22px 28px; border:1px solid #d0d7de; border-radius:12px; background:#fff; box-shadow:0 6px 28px rgba(31,35,40,.12); color:#57606a; font-size:13px; }
+  .pool-loading .ring { width:36px; height:36px; border-width:4px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .stats { display:grid; grid-template-columns:minmax(110px, .5fr) minmax(560px, 3.4fr) minmax(105px, .45fr); gap:8px; margin:8px 0; }
-  .stat { background:#fff; border:1px solid #e1e4e8; border-radius:8px; padding:7px 9px; }
+  .stat { min-width:0; background:#fff; border:1px solid #e1e4e8; border-radius:8px; padding:7px 9px; }
   .stat .k { color:#6b7280; font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
   .stat .v { font-size:16px; font-weight:700; margin-top:2px; }
   .stat .rate { color:#6b7280; font-size:10px; margin-top:2px; }
@@ -35,6 +39,12 @@
   .income-averages { flex:0 0 auto; color:#57606a; font-size:10px; line-height:16px; white-space:nowrap; }
   .income-averages b { color:#1f2328; }
   .income-averages .income-week b { color:#0969da; }
+  .wallet-filter { display:grid; gap:2px; margin-top:6px; font-size:10px; }
+  .wallet-filter label { padding-left:8px; color:#6b7280; }
+  .wallet-filter select { appearance:none; -webkit-appearance:none; width:100%; min-width:0; max-width:100%; margin:0; padding:4px 26px 4px 7px; border:1px solid #8c959f; border-radius:5px; background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m3 5 4 4 4-4' fill='none' stroke='%231f2328' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center; color:#1f2328; font:inherit; font-size:11px; text-align:left; text-align-last:left; text-overflow:ellipsis; outline:none; }
+  .wallet-filter select:focus-visible { outline:1px solid #57606a; outline-offset:1px; }
+  .wallet-filter .muted { padding-left:8px; font-size:10px; }
+  .pool-empty { grid-column:1 / span 4; align-self:start; padding:18px; border:1px solid #e1e4e8; border-radius:12px; background:#fff; color:#6b7280; font-size:13px; }
   .grid { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
   .position-columns { display:grid; grid-template-columns:repeat(4, minmax(0, 1.2fr)) repeat(2, minmax(0, .7fr)); column-gap:16px; row-gap:16px; margin-top:10px; }
   .section, .section .grid { min-width:0; width:100%; }
@@ -90,8 +100,10 @@
   .wallet-table .copy-address { display:inline-flex; flex:0 0 17px; align-items:center; justify-content:center; width:17px; height:17px; padding:0; border:0; background:transparent; color:#57606a; font-size:11px; line-height:1; cursor:pointer; }
   .wallet-table .copy-address:hover { color:#0969da; }
   .wallet-table .copy-address:focus-visible { outline:2px solid #0969da; outline-offset:2px; }
-  .wallet-table .network-line { display:flex; align-items:center; justify-content:flex-end; min-height:19px; line-height:19px; }
-  .wallet-table .balance-entry { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:100%; }
+  .wallet-table .network-line { display:flex; align-items:center; justify-content:flex-end; min-width:0; min-height:19px; line-height:19px; overflow:hidden; }
+  .wallet-table .network-value { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wallet-table .wallet-health-cell { padding-left:6px; }
+  .wallet-table .balance-entry { display:flex; align-items:center; justify-content:flex-end; gap:4px; min-width:0; max-width:100%; }
   .wallet-table .wallet-balance-amount { min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .wallet-table .wallet-chain-marker { display:inline-block; width:7px; height:7px; flex:0 0 7px; }
   .wallet-table tfoot { border-top:2px solid #d0d7de; font-weight:700; }
@@ -156,7 +168,7 @@
   .mini-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #d0d7de; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:600; color:#0969da; cursor:pointer; }
   .mini-btn:hover { background:#f6f8fa; }
   .mini-btn:disabled { opacity:.6; cursor:default; }
-  @media (max-width:2400px) { .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } .portfolio-sidebar { grid-column:1 / -1; } }
+  @media (max-width:2400px) { .position-columns { grid-template-columns:repeat(2, minmax(0, 1fr)); } .portfolio-sidebar, .pool-empty { grid-column:1 / -1; } }
   @media (max-width:1000px) { .wrap { width:100%; } .stats { grid-template-columns:minmax(95px, .5fr) minmax(500px, 3.4fr) minmax(90px, .45fr); } .section-two-columns { grid-column:span 2; } }
   @media (max-width:700px) { .position-columns { grid-template-columns:1fr; } .section-two-columns { grid-column:span 1; } .section-two-columns .grid { grid-template-columns:1fr; } }
   @media (max-width:600px) { .wrap { padding:12px; } }
@@ -166,6 +178,9 @@
 </style>
 </head>
 <body>
+<div id="poolLoading" class="pool-loading" role="status" aria-live="polite" hidden>
+  <div class="pool-loading-box"><span class="ring dark" aria-hidden="true"></span><span>Загрузка пулов…</span></div>
+</div>
 <div class="wrap">
   <header>
     <div>
@@ -176,12 +191,21 @@
   </header>
 
   <div class="stats">
-    <div class="stat"><div class="k">Стоимость ликвидности</div><div class="v" id="statValue">—</div></div>
+    <div class="stat">
+      <div class="k">Стоимость ликвидности</div><div class="v" id="statValue">—</div>
+      <div class="wallet-filter">
+        <label for="walletFilter">Пулы кошелька</label>
+        <select id="walletFilter" onchange="setWalletFilter(this.value)" disabled>
+          <option value="">Все кошельки</option>
+        </select>
+        <span class="muted" id="walletFilterCount" aria-live="polite"></span>
+      </div>
+    </div>
     <div class="stat"><div class="k">Накоплено дохода</div><div class="income-content"><div class="income-total"><div class="v" id="statFees">—</div><div class="rate" id="statRubRate"></div></div><div class="daily-income" id="dailyIncome">—</div><div class="income-averages" id="statDailyAverages">—</div></div></div>
     <div class="stat"><div class="k">Позиции (в диапазоне)</div><div class="v" id="statCount">—</div></div>
   </div>
 
-  <div id="sections"></div>
+  <div id="sections" aria-busy="false"></div>
 </div>
 
 <script>
@@ -293,6 +317,13 @@ function setLoading(el, on) {
     el.disabled = false;
     if (el.dataset.html) el.innerHTML = el.dataset.html;
   }
+}
+
+let activePoolLoads = 0;
+function setPoolsLoading(on) {
+  activePoolLoads = Math.max(0, activePoolLoads + (on ? 1 : -1));
+  document.getElementById("poolLoading").hidden = activePoolLoads === 0;
+  document.getElementById("sections").setAttribute("aria-busy", String(activePoolLoads > 0));
 }
 
 const CHAIN_COLORS = { arbitrum: "#12aaff", avalanche: "#e84142", bsc: "#f0b90b" };
@@ -424,10 +455,10 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
       || Number(balance.aaveCollateralUsd) > 0 || Number(balance.aaveDebtUsd) > 0
       || balance.positionCount > 0);
     const networkCell = render => balances.length
-      ? balances.map(balance => `<span class="network-line">${render(balance)}</span>`).join("") : "—";
+      ? balances.map(balance => `<span class="network-line"><span class="network-value">${render(balance)}</span></span>`).join("") : "—";
     const health = balance => {
       const hf = walletNumber(balance.healthFactor);
-      return hf > 0 ? `<b class="aave-health ${hf >= 1.5 ? "safe" : hf >= 1.1 ? "watch" : "risk"}">${fmt(hf, 2)}</b>` : "—";
+      return hf > 0 ? `<b title="HF: ${fmt(hf, 2)}" class="aave-health ${hf >= 1.5 ? "safe" : hf >= 1.1 ? "watch" : "risk"}">${fmt(hf, 2)}</b>` : "—";
     };
     const balanceCell = balance => {
       const amount = walletNumber(balance.amount) == null ? "—" : fmt(Number(balance.amount), 18);
@@ -436,7 +467,7 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
     const rubTitle = wallet.total != null && walletNumber(rubPerUsd) > 0 ? ` (${fmtRub(wallet.total * Number(rubPerUsd))})` : "";
     const address = escapeWalletText(wallet.address);
     return `<tr class="wallet-record"><th scope="row" title="${address}"><b class="wallet-name">${escapeWalletText(wallet.name || "Кошелёк")}</b><span class="wallet-id"><span class="wallet-address">${escapeWalletText(wallet.address.slice(0, 4))}…${escapeWalletText(wallet.address.slice(-4))}</span><button class="copy-address" type="button" data-address="${address}" onclick="copyWalletAddress(this)" title="Копировать адрес" aria-label="Копировать адрес">⧉</button></span></th>
-      <td>${networkCell(balanceCell)}</td><td>${networkCell(health)}</td>
+      <td>${networkCell(balanceCell)}</td><td class="wallet-health-cell">${networkCell(health)}</td>
       <td>${networkCell(b => usd(walletNumber(b.aaveCollateralUsd)))}</td>
       <td>${networkCell(b => usd(walletNumber(b.aaveDebtUsd)))}</td>
       <td>${networkCell(b => usd(walletNumber(b.aaveAvailableBorrowUsd)))}</td>
@@ -449,7 +480,7 @@ function renderWalletSection(wallets, rubPerUsd, positions) {
     <div class="section">
       <div class="section-head"><span class="dot" style="background:#6b7280"></span><h2>Кошельки</h2>${rate}</div>
       <div class="wallet-table-wrap"><table class="wallet-table" aria-label="Кошельки и займы Aave">
-        <colgroup><col style="width:18%"><col style="width:16%"><col style="width:6%"><col style="width:13%"><col style="width:12%"><col style="width:14%"><col style="width:9%"><col style="width:12%"></colgroup>
+        <colgroup><col style="width:16%"><col style="width:16%"><col style="width:10%"><col style="width:13%"><col style="width:12%"><col style="width:13%"><col style="width:8%"><col style="width:12%"></colgroup>
         <thead><tr><th scope="col">Кошелёк</th><th scope="col" title="USDC/USDT по сетям; наведите на сумму для названия сети и токена">Баланс</th><th scope="col">hf</th><th scope="col">Залог, $</th><th scope="col">Долг, $</th><th scope="col">Дост., $</th><th scope="col">LP</th><th scope="col">Всего, $</th></tr></thead>
         <tbody>${rows}</tbody><tfoot><tr class="wallet-total-row"><td colspan="8"><div class="wallet-totals" role="group" aria-label="Итоги по кошелькам в USD">
           <span class="wallet-totals-label">Итого, USD</span>
@@ -561,11 +592,39 @@ function incomeSinceFriday(days, now = new Date()) {
   return { start, end:today, totalUsd };
 }
 
-function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, incomeYear, closingIncome) {
-  prices = prices || {};
+let dashboardPositions = null;
+let selectedPoolWallet = "";
+
+function walletFilterOptions(wallets, positions, selected = "") {
+  const accounts = new Map();
+  for (const wallet of [...(wallets || []).flatMap(group => group.wallets || []), ...(positions || [])]) {
+    if (!wallet.address) continue;
+    const key = wallet.address.toLowerCase();
+    const previous = accounts.get(key);
+    if (!previous || (!previous.name && wallet.name)) accounts.set(key, { address:wallet.address, name:wallet.name || "" });
+  }
+  if (selected && !accounts.has(selected)) accounts.set(selected, { address:selected, name:"" });
+  return [...accounts].map(([value, wallet]) => ({ value,
+    label:`${wallet.name || "Кошелёк"} · ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}` }));
+}
+
+function positionsForWallet(positions, address) {
+  return address ? positions.filter(position => position.address?.toLowerCase() === address.toLowerCase()) : positions;
+}
+
+function setWalletFilter(address) {
+  selectedPoolWallet = String(address || "").toLowerCase();
+  document.getElementById("walletFilter").value = selectedPoolWallet;
+  renderPositionSections();
+}
+
+function renderPositionSections() {
+  if (!dashboardPositions) return;
+  const { positions, prices, wallets, charts, rubPerUsd } = dashboardPositions;
+  const visible = positionsForWallet(positions, selectedPoolWallet);
   const order = [["arbitrum", "Uniswap ETH/USDC"], ["avalanche", "Uniswap AVAX/USDC"], ["bsc", "PancakeSwap BNB/USDT"]];
   const groups = {};
-  for (const p of positions) (groups[p.chain] = groups[p.chain] || []).push(p);
+  for (const p of visible) (groups[p.chain] = groups[p.chain] || []).push(p);
 
   let columns = "";
   for (const [key, label] of order) {
@@ -574,18 +633,36 @@ function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, in
   for (const key of Object.keys(groups)) {
     if (!order.some((o) => o[0] === key)) columns += renderSection(key, key, groups[key], prices[key]);
   }
+  if (!visible.length) columns += `<div class="pool-empty">${selectedPoolWallet ? "У выбранного кошелька нет открытых пулов." : "Открытых пулов нет."}</div>`;
   columns += `<div class="portfolio-sidebar">${renderWalletSection(wallets || [], rubPerUsd, positions)}${renderChartsSection(charts || {})}</div>`;
 
   document.getElementById("sections").innerHTML = `<div class="position-columns">${columns}</div>`;
+  document.getElementById("walletFilterCount").textContent = `Показано пулов: ${visible.length} из ${positions.length}`;
+  updatePositionAges();
+}
+
+function renderPositionStats() {
+  const { positions, rubPerUsd } = dashboardPositions;
   document.getElementById("statValue").textContent = fmtUsd(positions.reduce((a, r) => a + r.valueUsd, 0));
   const totalIncomeUsd = positions.reduce((sum, r) => sum + r.feeUsd + (r.cake ? r.cake.usd : 0), 0);
   const incomeRub = Number(rubPerUsd) * totalIncomeUsd;
   document.getElementById("statFees").textContent = `${fmtUsd(totalIncomeUsd)}${isFinite(incomeRub) ? ` (${fmtRub(incomeRub)})` : ""}`;
   document.getElementById("statRubRate").textContent = Number.isFinite(Number(rubPerUsd)) ? `1 USDC = ${fmtRub(Number(rubPerUsd))}` : "";
-  renderIncomePeriods(incomeDays, incomeYear, closingIncome);
   const inRange = positions.filter((r) => r.inRange).length;
   document.getElementById("statCount").textContent = `${positions.length} (${inRange})`;
-  updatePositionAges();
+}
+
+function renderAll(positions, prices, wallets, charts, rubPerUsd, incomeDays, incomeYear, closingIncome) {
+  dashboardPositions = { positions, prices:prices || {}, wallets:wallets || [], charts:charts || {}, rubPerUsd };
+  const filter = document.getElementById("walletFilter");
+  const options = walletFilterOptions(wallets, positions, selectedPoolWallet);
+  filter.innerHTML = '<option value="">Все кошельки</option>' + options.map(option =>
+    `<option value="${escapeWalletText(option.value)}">${escapeWalletText(option.label)}</option>`).join("");
+  filter.value = selectedPoolWallet;
+  filter.disabled = false;
+  renderPositionSections();
+  renderPositionStats();
+  renderIncomePeriods(incomeDays, incomeYear, closingIncome);
 }
 
 function renderIncomePeriods(incomeDays, incomeYear, closingIncome) {
@@ -634,6 +711,8 @@ async function refreshIncome() {
 async function refreshAll() {
   const btn = document.getElementById("refreshAll");
   setLoading(btn, true);
+  setPoolsLoading(true);
+  let failure = null;
   try {
     const res = await fetch("/api/positions");
     const data = await res.json();
@@ -641,10 +720,12 @@ async function refreshAll() {
     renderAll(data.positions, data.prices, data.wallets, data.charts, data.rubPerUsd, data.incomeDays, data.incomeYear, data.closingIncome);
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
-    alert("Ошибка: " + e.message);
+    failure = e;
   } finally {
     setLoading(btn, false);
+    setPoolsLoading(false);
   }
+  if (failure) alert("Ошибка: " + failure.message);
 }
 
 async function refreshOne(id) {
@@ -652,20 +733,24 @@ async function refreshOne(id) {
   if (!card) return;
   const btn = card.querySelector(".refresh");
   setLoading(btn, true);
+  setPoolsLoading(true);
+  let failure = null;
   try {
     const res = await fetch("/api/positions/" + encodeURIComponent(id));
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const p = data.position;
-    const tmp = document.createElement("div");
-    tmp.innerHTML = renderCard(p);
-    card.replaceWith(tmp.firstElementChild);
-    updatePositionAges();
+    dashboardPositions.positions = dashboardPositions.positions.map(position => position.id === p.id ? p : position);
+    renderPositionSections();
+    renderPositionStats();
     document.getElementById("updated").textContent = "Обновлено: " + new Date(data.updated).toLocaleString("ru-RU");
   } catch (e) {
-    alert("Ошибка: " + e.message);
+    failure = e;
+  } finally {
     setLoading(btn, false);
+    setPoolsLoading(false);
   }
+  if (failure) alert("Ошибка: " + failure.message);
 }
 
 refreshAll();

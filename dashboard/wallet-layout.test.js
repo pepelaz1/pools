@@ -8,7 +8,9 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
   .replace(/refreshAll\(\);\s*setInterval\(updatePositionAges, 60_000\);/, "");
 const elements = {};
 const ui = { console, AbortSignal, setInterval: () => {}, document: {
-  getElementById: id => elements[id] ||= {}, querySelectorAll: () => [],
+  getElementById: id => elements[id] ||= { hidden:true, dataset:{}, innerHTML:"", attributes:{},
+    classList:{ contains:() => false }, setAttribute(name, value) { this.attributes[name] = value; } },
+  querySelectorAll: () => [],
   addEventListener: () => {},
 } };
 vm.createContext(ui);
@@ -18,6 +20,101 @@ const entry = (n, amount, collateral, debt) => ({ name: `wallet${n}`, address: a
   healthFactor: debt > 0 ? 3 : null, aaveCollateralUsd: collateral, aaveDebtUsd: debt,
   aaveAvailableBorrowUsd: 50 });
 const group = (chain, wallets) => ({ chain, chainLabel: chain, symbol: chain === "bsc" ? "USDT" : "USDC", wallets });
+const pool = (id, owner, chain) => ({ id, address:owner, chain, chainLabel:chain, tokenId:id,
+  dex:chain === "bsc" ? "pancakeswap" : "uniswap", displayPair:"ETH/USDC", fee:500,
+  sym0:"WETH", sym1:"USDC", dec0:18, dec1:6, amt0:0.01, amt1:80, fee0:0, fee1:1,
+  valueUsd:100, feeUsd:1, inRange:true, lowerPrice:2000, upperPrice:2100, currentPrice:2050, pct:50 });
+
+test("wallet filter deduplicates addresses across networks and includes pools without wallet metadata", () => {
+  const owner = "0x" + "ab".repeat(20);
+  const options = ui.walletFilterOptions([
+    group("arbitrum", [{ address:owner, name:"1bcb" }]),
+    group("avalanche", [{ address:owner.toUpperCase(), name:"1bcb" }]),
+  ], [{ address:address(2), name:"other" }]);
+  assert.equal(options.length, 2);
+  assert.equal(options[0].value, owner);
+  assert.ok(options[0].label.startsWith("1bcb"));
+  assert.equal(options[1].value, address(2));
+});
+
+test("selected wallet filters every chain, survives refresh, and clearing restores all pools", t => {
+  t.after(() => ui.setWalletFilter(""));
+  const owner = "0x" + "ab".repeat(20);
+  const positions = [pool("eth-a", owner, "arbitrum"), pool("avax-a", owner.toUpperCase(), "avalanche"),
+    pool("bnb-b", address(2), "bsc")];
+  const wallets = [group("arbitrum", [{ ...entry(1, 0, 0, 0), address:owner, name:"<wallet>" }, entry(3, 0, 0, 0)])];
+  ui.renderAll(positions, {}, wallets, {}, 84, []);
+  assert.ok(elements.walletFilter.innerHTML.includes("&lt;wallet&gt;"));
+  assert.equal((elements.sections.innerHTML.match(/id="card-/g) || []).length, 3);
+  ui.setWalletFilter(owner.toUpperCase());
+  assert.equal((elements.sections.innerHTML.match(/id="card-/g) || []).length, 2);
+  assert.ok(!elements.sections.innerHTML.includes('id="card-bnb-b"'));
+  assert.equal(elements.walletFilterCount.textContent, "Показано пулов: 2 из 3");
+  assert.equal(elements.statCount.textContent, "3 (3)");
+  ui.renderAll(positions, {}, wallets, {}, 84, []);
+  assert.equal(elements.walletFilter.value, owner);
+  assert.ok(!elements.sections.innerHTML.includes('id="card-bnb-b"'));
+  ui.setWalletFilter(address(3));
+  assert.ok(elements.sections.innerHTML.includes("У выбранного кошелька нет открытых пулов."));
+  assert.equal(elements.walletFilterCount.textContent, "Показано пулов: 0 из 3");
+  ui.setWalletFilter("");
+  assert.equal((elements.sections.innerHTML.match(/id="card-/g) || []).length, 3);
+});
+
+test("a wallet missing after an RPC refresh stays selected instead of exposing other pools", t => {
+  t.after(() => ui.setWalletFilter(""));
+  ui.renderAll([pool("one", address(1), "arbitrum")], {}, [], {}, 84, []);
+  ui.setWalletFilter(address(1));
+  ui.renderAll([pool("two", address(2), "arbitrum")], {}, [], {}, 84, []);
+  assert.equal(elements.walletFilter.value, address(1));
+  assert.ok(elements.walletFilter.innerHTML.includes(address(1)));
+  assert.ok(!elements.sections.innerHTML.includes('id="card-two"'));
+});
+
+test("refreshing a card preserves its updated data when switching wallet filters", async t => {
+  const previousFetch = ui.fetch;
+  t.after(() => { ui.fetch = previousFetch; ui.setWalletFilter(""); });
+  const first = pool("refresh-a", address(1), "arbitrum");
+  ui.renderAll([first, pool("refresh-b", address(2), "arbitrum")], {}, [], {}, 84, []);
+  ui.setWalletFilter(address(1));
+  const button = { innerHTML:"Обновить", dataset:{}, classList:{ contains:() => true } };
+  elements["card-refresh-a"] = { querySelector:() => button };
+  ui.fetch = async () => ({ json:async () => ({ position:{ ...first, valueUsd:999 }, updated:"2026-11-11T00:00:00Z" }) });
+  await ui.refreshOne(first.id);
+  assert.ok(elements.sections.innerHTML.includes("$999.00"));
+  assert.ok(!elements.sections.innerHTML.includes('id="card-refresh-b"'));
+  ui.setWalletFilter("");
+  assert.ok(elements.sections.innerHTML.includes("$999.00"));
+});
+
+test("pool loading indicator stays visible until the data arrives", async t => {
+  const previousFetch = ui.fetch;
+  t.after(() => { ui.fetch = previousFetch; });
+  let resolve;
+  ui.fetch = () => new Promise(done => { resolve = done; });
+  const pending = ui.refreshAll();
+  assert.equal(elements.poolLoading.hidden, false);
+  assert.equal(elements.sections.attributes["aria-busy"], "true");
+  resolve({ json:async () => ({ positions:[], wallets:[], incomeDays:[], updated:"2026-11-11T00:00:00Z" }) });
+  await pending;
+  assert.equal(elements.poolLoading.hidden, true);
+  assert.equal(elements.sections.attributes["aria-busy"], "false");
+  assert.equal(elements.refreshAll.disabled, false);
+});
+
+test("failed pool requests hide the indicator before showing the error", async t => {
+  const previousFetch = ui.fetch, previousAlert = ui.alert;
+  t.after(() => { ui.fetch = previousFetch; ui.alert = previousAlert; });
+  const messages = [];
+  ui.fetch = async () => { throw new Error("RPC unavailable"); };
+  ui.alert = message => {
+    assert.equal(elements.poolLoading.hidden, true);
+    messages.push(message);
+  };
+  await ui.refreshAll();
+  assert.equal(elements.sections.attributes["aria-busy"], "false");
+  assert.deepEqual(messages, ["Ошибка: RPC unavailable"]);
+});
 
 test("one table row per wallet, including multiple networks and one aggregate row", () => {
   const groups = [group("arbitrum", [entry(1, 1, 100, 20), entry(2, 2, 200, 30)]),
