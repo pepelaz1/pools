@@ -4,6 +4,7 @@ const path = require("path");
 const { ethers } = require("ethers");
 const { closePosition, RPC, prompt, promptHidden } = require("./lib");
 const { recordCloseIncome } = require("../close-income");
+const { runCloseJob, DIRECTORY } = require("./close-job");
 
 const KEYSTORE = path.join(__dirname, "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
@@ -37,9 +38,12 @@ function closingSummary(opened, usdtBefore, usdtAfter, { keepBnb = false, comple
 async function main() {
   const args = process.argv.slice(2);
   const keepBnb = args.includes("--keep-bnb");
+  const resume = args.includes("--resume");
+  if (args.some(arg => !/^\d+$/.test(arg) && !["--keep-bnb", "--resume"].includes(arg)) || args.filter(arg => /^\d+$/.test(arg)).length > 1) throw Error("Unknown or duplicate arguments");
+  if (resume && !keepBnb) throw Error("--resume requires --keep-bnb");
   const tokenIdArg = args.find((arg) => /^\d+$/.test(arg));
   if (!tokenIdArg) {
-    console.log("использование: node close-position.js <tokenId> [--keep-bnb]");
+    console.log("использование: node close-position.js <tokenId> [--keep-bnb] [--resume]");
     console.log("  --keep-bnb: конвертировать USDT и CAKE из позиции в нативный BNB вместо USDT");
     process.exit(1);
   }
@@ -79,8 +83,12 @@ async function main() {
   }
 
   const wallet = await ethers.Wallet.fromEncryptedJson(ksEntry.keystore, password);
-  const provider = new ethers.JsonRpcProvider(RPC);
+  const request = new ethers.FetchRequest(process.env.RPC_BSC || RPC);
+  request.timeout = 20000;
+  const provider = new ethers.JsonRpcProvider(request, 56, { staticNetwork:true });
+  try {
   const connected = wallet.connect(provider);
+  if (resume && await provider.getTransactionCount(wallet.address, "pending") !== await provider.getTransactionCount(wallet.address, "latest")) throw Error("Pending transactions exist; wait for confirmation before resuming");
 
   const balBefore = await provider.getBalance(wallet.address);
   const usdtBefore = await new ethers.Contract(
@@ -93,10 +101,14 @@ async function main() {
   console.log(`закрываю позицию ${item.tokenId}${keepBnb ? " с конвертацией в BNB" : ""}\n`);
 
   try {
-    const stats = await closePosition(connected, item.tokenId, {
+    const execute = hooks => closePosition(connected, item.tokenId, {
       slippageBps: 100,
       keepBnb,
+      ...hooks,
     });
+    const stats = keepBnb
+      ? await runCloseJob({ tokenId:String(item.tokenId), address:wallet.address, keepBnb:true }, resume, execute)
+      : await execute({});
     if (stats.status === "skip") {
       console.log(`пропуск: ${stats.reason}`);
     } else {
@@ -110,6 +122,7 @@ async function main() {
       removePosition(raw, item.tokenId);
       console.log("позиция удалена из positions.json");
       console.log(`готово. шаги: ${stats.steps.join(", ")}`);
+      if (keepBnb && stats.bnbFromPosition != null) console.log(`получено из позиции: ${ethers.formatEther(stats.bnbFromPosition)} BNB (без вычета газа)`);
       console.log(`${keepBnb ? "BNB" : "USDT"} сейчас: ${ethers.formatUnits(keepBnb ? stats.bnbBalance : stats.usdtReceived, 18)}`);
       for (const line of closingSummary(item.opened, usdtBefore, stats.usdtReceived, {
         keepBnb, complete:stats.principalUsdtReceived != null,
@@ -120,6 +133,9 @@ async function main() {
     }
   } catch (e) {
     console.error(`ошибка: ${e.shortMessage || e.message}`);
+    process.exitCode = 1;
+    if (e.receipt?.hash) console.error(`transaction: ${e.receipt.hash}`);
+    if (keepBnb) console.error(`Журнал: ${path.join(DIRECTORY, `${item.tokenId}.json`)}. После проверки: node close-position.js ${item.tokenId} --keep-bnb --resume`);
   }
 
   const balAfter = await provider.getBalance(wallet.address);
@@ -133,6 +149,7 @@ async function main() {
   console.log(`потрачено BNB: ${ethers.formatEther(balBefore - balAfter)}`);
   console.log(`изменение USDT: ${ethers.formatUnits(usdtAfter - usdtBefore, 18)}`);
   if (keepBnb) console.log(`изменение BNB с учётом газа: ${ethers.formatEther(balAfter - balBefore)}`);
+  } finally { provider.destroy(); }
 }
 
 if (require.main === module) main().catch((e) => {

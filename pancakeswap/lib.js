@@ -75,13 +75,9 @@ async function swapToUsdt(wallet, tokenIn, amountIn, fee, slippageBps) {
     await (await tokenC.approve(SWAP_ROUTER, amountIn)).wait();
   }
 
-  let amountOutMin = 0n;
-  try {
-    const amountOut = await quoteUsdt(provider, tokenIn, amountIn, fee);
-    amountOutMin = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
-  } catch {
-    amountOutMin = 0n;
-  }
+  const amountOut = await quoteUsdt(provider, tokenIn, amountIn, fee);
+  const amountOutMin = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
+  if (amountOutMin <= 0n) throw new Error("No valid swap quote; refusing zero minimum output");
 
   const usdtC = new ethers.Contract(USDT, ERC20_ABI, wallet);
   const before = await usdtC.balanceOf(me);
@@ -97,34 +93,38 @@ async function swapToUsdt(wallet, tokenIn, amountIn, fee, slippageBps) {
   };
   await router.exactInputSingle.staticCall(params);
   const estimatedGas = await router.exactInputSingle.estimateGas(params);
-  await (await router.exactInputSingle(params, { gasLimit: estimatedGas * 120n / 100n })).wait();
+  const tx = await router.exactInputSingle(params, { gasLimit: estimatedGas * 130n / 100n });
+  console.log(`  swap -> USDT tx: ${tx.hash}`);
+  await tx.wait();
   const after = await usdtC.balanceOf(me);
   return after - before;
 }
 
-async function swapUsdtToWbnb(wallet, amountIn, slippageBps) {
+async function swapUsdtToWbnb(wallet, amountIn, slippageBps, contracts = {}) {
   if (amountIn === 0n) return 0n;
+  if (amountIn < 0n || !Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps >= 10000) {
+    throw new Error("Invalid swap amount or slippage");
+  }
   const me = wallet.address;
   const provider = wallet.provider;
-  const usdtC = new ethers.Contract(USDT, ERC20_ABI, wallet);
+  const usdtC = contracts.usdt || new ethers.Contract(USDT, ERC20_ABI, wallet);
+  const quoter = contracts.quoter || new ethers.Contract(QUOTER, QUOTER_ABI, provider);
+  const quote = await quoter.quoteExactInputSingle.staticCall({
+    tokenIn:USDT, tokenOut:WBNB, amountIn, fee:WBNB_USDT_FEE, sqrtPriceLimitX96:0,
+  });
+  const amountOutMin = quote[0] * BigInt(10000 - slippageBps) / 10000n;
+  if (amountOutMin <= 0n) throw new Error("No valid USDT -> WBNB quote");
   const allowance = await usdtC.allowance(me, SWAP_ROUTER);
   if (allowance < amountIn) {
-    await (await usdtC.approve(SWAP_ROUTER, ethers.MaxUint256)).wait();
+    const approval = await usdtC.approve(SWAP_ROUTER, amountIn);
+    console.log(`  approve USDT tx: ${approval.hash}`);
+    await approval.wait();
   }
 
-  const quoter = new ethers.Contract(QUOTER, QUOTER_ABI, provider);
-  let amountOutMin = 0n;
-  try {
-    const quote = await quoter.quoteExactInputSingle.staticCall({
-      tokenIn: USDT, tokenOut: WBNB, amountIn, fee: WBNB_USDT_FEE, sqrtPriceLimitX96: 0,
-    });
-    amountOutMin = quote[0] * BigInt(10000 - slippageBps) / 10000n;
-  } catch {}
-
-  const wbnbC = new ethers.Contract(WBNB, ERC20_ABI, wallet);
+  const wbnbC = contracts.wbnb || new ethers.Contract(WBNB, ERC20_ABI, wallet);
   const before = await wbnbC.balanceOf(me);
-  const router = new ethers.Contract(SWAP_ROUTER, SWAP_ABI, wallet);
-  await (await router.exactInputSingle({
+  const router = contracts.router || new ethers.Contract(SWAP_ROUTER, SWAP_ABI, wallet);
+  const params = {
     tokenIn: USDT,
     tokenOut: WBNB,
     fee: WBNB_USDT_FEE,
@@ -132,7 +132,12 @@ async function swapUsdtToWbnb(wallet, amountIn, slippageBps) {
     amountIn,
     amountOutMinimum: amountOutMin,
     sqrtPriceLimitX96: 0,
-  })).wait();
+  };
+  await router.exactInputSingle.staticCall(params);
+  const estimatedGas = await router.exactInputSingle.estimateGas(params);
+  const tx = await router.exactInputSingle(params, { gasLimit:estimatedGas * 130n / 100n });
+  console.log(`  swap USDT -> WBNB tx: ${tx.hash}`);
+  await tx.wait();
   return (await wbnbC.balanceOf(me)) - before;
 }
 
@@ -314,7 +319,8 @@ function prompt(question) {
   });
 }
 
-async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = false } = {}) {
+async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = false,
+  resumeBalances, onBaseline = () => {}, onStage = () => {} } = {}) {
   const me = wallet.address;
   const provider = wallet.provider;
   const pm = new ethers.Contract(POSITION_MANAGER, PM_ABI, wallet);
@@ -344,17 +350,25 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   }
 
   // Only swap tokens released by this position, never the wallet's existing balance.
-  const [wbnbBefore, cakeBefore, usdtBefore] = await Promise.all([
+  const currentBalances = await Promise.all([
     wbnbC.balanceOf(me),
     cakeC.balanceOf(me),
     usdtC.balanceOf(me),
   ]);
+  const [wbnbBefore, cakeBefore, usdtBefore] = resumeBalances
+    ? [BigInt(resumeBalances.wbnbBefore), BigInt(resumeBalances.cakeBefore), BigInt(resumeBalances.usdtBefore)]
+    : currentBalances;
+  if (currentBalances.some((balance, index) => balance < [wbnbBefore, cakeBefore, usdtBefore][index])) {
+    throw new Error("Wallet balance is below the saved baseline; inspect transfers before resuming");
+  }
+  if (!resumeBalances) onBaseline({ wbnbBefore:String(wbnbBefore), cakeBefore:String(cakeBefore), usdtBefore:String(usdtBefore) });
 
   const stats = { tokenId, status: "ok", steps: [] };
 
   // 1. withdraw + harvest (unstakes NFT, harvests CAKE, returns NFT to wallet)
   if (isStaked) {
     try {
+      onStage("withdrawing");
       console.log("  withdraw...");
       const estimatedGas = await mc.withdraw.estimateGas(tokenId, me);
       // BSC public RPC can underestimate this MasterChef call by a small margin.
@@ -375,7 +389,8 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
     amount0Max: MAX_UINT128,
     amount1Max: MAX_UINT128,
   };
-  try {
+  if (!resumeBalances || liquidity > 0n || pos.tokensOwed0 > 0n || pos.tokensOwed1 > 0n) try {
+    onStage("collecting");
     console.log("  collect...");
     await (await pm.collect(collectParams)).wait();
     stats.steps.push("collect");
@@ -389,6 +404,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   let principal = null;
   if (liquidity > 0n) {
     try {
+      onStage("decreasing");
       console.log("  забираю ликвидность...");
       const decreaseParams = {
         tokenId,
@@ -407,6 +423,7 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
       console.log("  ликвидность забрана");
 
       console.log("  забираю токены...");
+      onStage("collecting-withdrawn");
       await (await pm.collect(collectParams)).wait();
       stats.steps.push("collectWithdrawn");
       console.log("  токены забраны");
@@ -429,19 +446,27 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
     // A position below the BNB/USDT range is all WBNB. Preserve that exposure,
     // including any USDT fees and CAKE rewards released while closing, as native BNB.
     if (cakeFromPosition > 0n) {
+      onStage("swapping-cake");
       await swapToUsdt(wallet, CAKE, cakeFromPosition, CAKE_USDT_FEE, slippageBps);
       stats.steps.push("swapCakeToUsdt");
     }
     const usdtAfterCake = await usdtC.balanceOf(me);
     const usdtFromPosition = usdtAfterCake > usdtBefore ? usdtAfterCake - usdtBefore : 0n;
     if (usdtFromPosition > 0n) {
+      onStage("swapping-usdt");
       await swapUsdtToWbnb(wallet, usdtFromPosition, slippageBps);
       stats.steps.push("swapUsdtToWbnb");
     }
     const wbnbAfterSwap = await wbnbC.balanceOf(me);
     const wbnbToUnwrap = wbnbAfterSwap > wbnbBefore ? wbnbAfterSwap - wbnbBefore : 0n;
     if (wbnbToUnwrap > 0n) {
-      await (await wbnbC.withdraw(wbnbToUnwrap)).wait();
+      onStage("unwrapping");
+      await wbnbC.withdraw.staticCall(wbnbToUnwrap);
+      const unwrapGas = await wbnbC.withdraw.estimateGas(wbnbToUnwrap);
+      const unwrapTx = await wbnbC.withdraw(wbnbToUnwrap, { gasLimit:unwrapGas * 130n / 100n });
+      console.log(`  unwrap WBNB tx: ${unwrapTx.hash}`);
+      await unwrapTx.wait();
+      stats.bnbFromPosition = wbnbToUnwrap;
       stats.steps.push("unwrapWbnb");
     }
   }
@@ -466,6 +491,9 @@ async function closePosition(wallet, tokenId, { slippageBps = 100, keepBnb = fal
   stats.usdtReceived = usdtFinal;
   stats.wbnbReceived = await wbnbC.balanceOf(me);
   stats.bnbBalance = await provider.getBalance(me);
+  if (keepBnb && (stats.wbnbReceived !== wbnbBefore || usdtFinal !== usdtBefore || await cakeC.balanceOf(me) !== cakeBefore)) {
+    throw new Error("Conversion incomplete; resume using the saved close journal");
+  }
   stats.principalUsdtReceived = !keepBnb && principal && stats.wbnbReceived === wbnbBefore
     ? principalProceeds({
       stablePrincipal:wbnbIdx === 0 ? principal.amount1 : principal.amount0,
@@ -499,6 +527,7 @@ module.exports = {
   WBNB_USDT_FEE,
   CAKE_USDT_FEE,
   swapToUsdt,
+  swapUsdtToWbnb,
   prompt,
   promptHidden,
 };

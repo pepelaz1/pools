@@ -2,7 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
-const { promptHidden } = require("./lib");
+const { publicArgs, readMasterPassword } = require("../uniswap/password-input");
 
 const KEYSTORE = path.join(__dirname, "wallets.json");
 const POSITIONS = path.join(__dirname, "positions.json");
@@ -12,7 +12,7 @@ const SLIPPAGE_BPS = Number(process.env.SLIPPAGE_BPS) || 100;
 const TX_ATTEMPTS = Math.max(1, Number(process.env.TX_ATTEMPTS) || 3);
 
 const CFG = {
-  rpc: "https://bsc-dataseed.binance.org/",
+  rpc: process.env.RPC_BSC || "https://bsc-dataseed.binance.org/",
   chainId: 56,
   swapRouter: "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4",
   positionManager: "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364",
@@ -189,7 +189,7 @@ async function stakeWithRetries(pm, walletAddress, tokenId) {
 }
 
 function parseArgs() {
-  const args = process.argv.slice(2).filter((a) => a !== "--dry-run");
+  const args = publicArgs().filter((a) => a !== "--dry-run");
   const fromBnb = args.includes("--from-bnb");
   if (fromBnb) args.splice(args.indexOf("--from-bnb"), 1);
   const keepBnbFlag = args.indexOf("--keep-bnb");
@@ -257,7 +257,7 @@ let wallet;
 async function main() {
   const { tickLower, tickUpper, amountUsd, priceFrom, priceTo, walletSelector, fromBnb, keepBnb } = parseArgs();
 
-  const password = await promptHidden("мастер-пароль: ");
+  const password = await readMasterPassword("мастер-пароль: ");
   const walletsRaw = JSON.parse(fs.readFileSync(KEYSTORE, "utf8"));
   const selectedWallet = (walletsRaw.wallets || []).find((item) =>
     item.name === walletSelector || item.address.toLowerCase() === walletSelector.toLowerCase(),
